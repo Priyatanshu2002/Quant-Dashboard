@@ -90,6 +90,12 @@ class Storage:
                                 actions: Iterable[dict]) -> None: ...
     def query_corporate_actions(self, symbol: str) -> list[dict]: ...
 
+    # ── data lineage / provenance ──
+    def record_lineage(self, table: str, entity_key: str, snapshot: dict,
+                       source: str = "", as_of: Any = None) -> int: ...
+    def query_lineage(self, table: str, entity_key: str) -> list[dict]: ...
+    def query_lineage_metadata(self, table: str, entity_key: str) -> dict | None: ...
+
     # ── feature store ──
     def write_feature_vectors(self, df: pd.DataFrame, symbol: str,
                               asset_class: str, timeframe: str) -> None: ...
@@ -222,6 +228,13 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
     symbol TEXT NOT NULL, action_date TEXT NOT NULL,
     action_type TEXT NOT NULL, amount REAL, raw TEXT,
     PRIMARY KEY (symbol, action_date, action_type)
+);
+
+CREATE TABLE IF NOT EXISTS data_revisions (
+    table_name TEXT NOT NULL, entity_key TEXT NOT NULL,
+    rev INTEGER NOT NULL, source TEXT, as_of TEXT,
+    snapshot TEXT, recorded_at TEXT NOT NULL,
+    PRIMARY KEY (table_name, entity_key, rev)
 );
 
 CREATE TABLE IF NOT EXISTS trade_log (
@@ -437,6 +450,57 @@ class SQLiteStorage(Storage):
             out.append(d)
         return out
 
+    # ── data lineage / provenance (R1) ──
+    def record_lineage(self, table: str, entity_key: str, snapshot: dict,
+                       source: str = "", as_of: Any = None) -> int:
+        """Append a revision row for (table, entity_key) with source + as_of.
+
+        Returns the new revision number. `snapshot` is the attributable values
+        (e.g. a fundamental snapshot dict); `as_of` is the fiscal/source date.
+        """
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(rev), 0) AS r FROM data_revisions "
+                "WHERE table_name=? AND entity_key=?",
+                (table, entity_key)).fetchone()
+            rev = (row["r"] if row else 0) + 1
+            conn.execute(
+                "INSERT INTO data_revisions (table_name, entity_key, rev, source, "
+                " as_of, snapshot, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (table, entity_key, rev, source,
+                 _as_naive_utc(as_of).isoformat(sep=" ") if as_of is not None else None,
+                 json.dumps(snapshot, default=str),
+                 _as_naive_utc(_utc_now()).isoformat(sep=" ")))
+        return rev
+
+    def query_lineage(self, table: str, entity_key: str) -> list[dict]:
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM data_revisions WHERE table_name=? AND entity_key=? "
+                "ORDER BY rev", (table, entity_key)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d.get("snapshot"):
+                try:
+                    d["snapshot"] = json.loads(d["snapshot"])
+                except (TypeError, json.JSONDecodeError):
+                    pass
+            out.append(d)
+        return out
+
+    def query_lineage_metadata(self, table: str, entity_key: str) -> dict | None:
+        rows = self.query_lineage(table, entity_key)
+        if not rows:
+            return None
+        latest = rows[-1]
+        return {"table": table, "entity_key": entity_key,
+                "rev": latest["rev"], "source": latest.get("source"),
+                "as_of": latest.get("as_of"),
+                "revision_count": len(rows),
+                "first_recorded": rows[0].get("recorded_at"),
+                "last_recorded": latest.get("recorded_at")}
+
     # ── feature store ──
     def write_feature_vectors(self, df: pd.DataFrame, symbol: str,
                               asset_class: str, timeframe: str) -> None:
@@ -501,6 +565,14 @@ class SQLiteStorage(Storage):
         with self._session() as conn:
             conn.execute(sql, [_as_naive_utc(time_val).isoformat(sep=" "),
                                symbol, asset_class, *vals])
+        # R1 lineage: attribute this snapshot to its source + fiscal period.
+        source = snap.get("source") or (raw.get("source") if isinstance(raw, dict) else "")
+        try:
+            as_of = snap.get("fiscal_period_end") or snap.get("period") or time_val
+        except Exception:  # noqa: BLE001
+            as_of = time_val
+        self.record_lineage("fundamental_snapshots", symbol, dict(snap),
+                            source=source or "", as_of=as_of)
 
     def query_latest_fundamentals(self, symbol: str) -> dict | None:
         with self._session() as conn:

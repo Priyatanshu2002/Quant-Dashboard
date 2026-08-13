@@ -64,6 +64,40 @@ def test_company_profile_depth_meta_roundtrip(db):
     assert "company_name" not in prof["meta"]
 
 
+# ── R1: data lineage / provenance ────────────────────────────────────────
+def test_record_and_query_lineage(db):
+    rev1 = db.record_lineage("fundamental_snapshots", "AAPL",
+                             {"revenue": 1000, "source": "SEC"}, source="SEC",
+                             as_of="2026-06-30")
+    rev2 = db.record_lineage("fundamental_snapshots", "AAPL",
+                             {"revenue": 1010, "source": "SEC"}, source="SEC",
+                             as_of="2026-06-30")
+    assert rev2 == rev1 + 1
+    rows = db.query_lineage("fundamental_snapshots", "AAPL")
+    assert len(rows) == 2
+    assert rows[0]["rev"] == 1 and rows[1]["rev"] == 2
+    assert rows[1]["snapshot"]["revenue"] == 1010
+    assert rows[1]["source"] == "SEC"
+    meta = db.query_lineage_metadata("fundamental_snapshots", "AAPL")
+    assert meta["rev"] == 2
+    assert meta["revision_count"] == 2
+    assert meta["source"] == "SEC"
+    # unknown entity → None
+    assert db.query_lineage_metadata("fundamental_snapshots", "ZZZ") is None
+
+
+def test_snapshot_upsert_records_lineage_with_source(db):
+    """Every fundamental snapshot write is attributable (R1)."""
+    db.upsert_fundamental_snapshot({"symbol": "X", "asset_class": "EQUITY_US",
+                                    "revenue": 500, "source": "YAHOO",
+                                    "fiscal_period_end": "2026-06-30"})
+    meta = db.query_lineage_metadata("fundamental_snapshots", "X")
+    assert meta is not None
+    assert meta["source"] == "YAHOO"
+    assert meta["as_of"].startswith("2026-06-30")
+    assert meta["revision_count"] == 1
+
+
 def test_llm_analysis_roundtrip(db):
     db.upsert_llm_analysis("AAPL", "NEWS", {"score": 0.4, "label": "bullish"}, "m1")
     db.upsert_llm_analysis("AAPL", "FUNDAMENTAL", {"rating": "HOLD"}, "m2")
