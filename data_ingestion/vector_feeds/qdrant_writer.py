@@ -10,7 +10,9 @@ Collections (all cosine distance):
     news                 — news article embeddings
 
 Vector dimension is detected at runtime:
-    1536  — OpenAI text-embedding-3-small (when OPENAI_API_KEY is set)
+    1536  — remote provider embedding (openai/text-embedding-3-small) via the
+            configured LLM provider (Nous or OpenRouter) — uses the same key
+            as the rest of the system (NOUS_API_KEY / OPENROUTER_API_KEY)
     384   — sentence-transformers all-MiniLM-L6-v2 (local fallback)
 
 Design rules:
@@ -28,13 +30,15 @@ import uuid
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from core.config import get
+from core.config import LLM_API_KEY, LLM_BASE_URL, get
 from core.logging import get_logger
 
 log = get_logger(__name__)
 
 EMBED_DIM = 1536
 FALLBACK_EMBED_DIM = 384
+# Model served by the configured OpenAI-compatible provider (Nous/OpenRouter).
+EMBED_MODEL = get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
 
 # Rough char budget approximating a token (≈4 chars/token for English).
 _CHUNK_CHARS = 500 * 4
@@ -71,30 +75,36 @@ def _storage():
 # Embedding
 # ---------------------------------------------------------------------------
 
-def _use_openai() -> bool:
-    return bool(get("OPENAI_API_KEY", ""))
+def _use_provider_embeddings() -> bool:
+    """Remote embeddings are available when the system has a provider key."""
+    return bool(LLM_API_KEY or get("OPENAI_API_KEY", ""))
 
 
 def effective_embed_dim() -> int:
-    """1536 if OpenAI key present else 384 (local MiniLM)."""
-    return EMBED_DIM if _use_openai() else FALLBACK_EMBED_DIM
+    """1536 if a provider key is present else 384 (local MiniLM)."""
+    return EMBED_DIM if _use_provider_embeddings() else FALLBACK_EMBED_DIM
 
 
 def embed_text(texts: Iterable[str], *, batch_size: int = 100) -> list[list[float]]:
     """Embed a list of strings → list of vectors.
 
-    Tries OpenAI text-embedding-3-small, falls back to local
-    sentence-transformers all-MiniLM-L6-v2. Batches to avoid rate limits.
+    Tries the configured LLM provider's embedding endpoint
+    (openai/text-embedding-3-small, 1536-dim), falling back to local
+    sentence-transformers all-MiniLM-L6-v2 (384-dim). Batches to avoid rate
+    limits. When a provider key is present the collections are sized at
+    1536-dim, so a remote failure yields no vectors (never a dim mismatch).
     """
     texts = [t for t in texts if t and t.strip()]
     if not texts:
         return []
-    if _use_openai():
+    if _use_provider_embeddings():
         try:
-            return _embed_openai(texts, batch_size)
+            return _embed_remote(texts, batch_size)
         except Exception as exc:  # noqa: BLE001
-            log.warning("OpenAI embeddings unavailable (%s) — falling back "
-                        "to local sentence-transformers", exc)
+            log.warning("Provider embeddings failed (%s) — no vectors produced "
+                        "(collections are %d-dim, so local fallback is skipped)",
+                        exc, EMBED_DIM)
+            return []
     try:
         return _embed_local(texts)
     except Exception as exc:  # noqa: BLE001
@@ -102,17 +112,22 @@ def embed_text(texts: Iterable[str], *, batch_size: int = 100) -> list[list[floa
         return []
 
 
-def _embed_openai(texts: list[str], batch_size: int) -> list[list[float]]:
+def _embed_remote(texts: list[str], batch_size: int) -> list[list[float]]:
+    """Embed via the configured OpenAI-compatible provider endpoint."""
     from openai import OpenAI
 
-    client = OpenAI(api_key=get("OPENAI_API_KEY"))
+    # Use the system's LLM provider (Nous/OpenRouter); fall back to a direct
+    # OpenAI key if someone set one instead.
+    api_key = LLM_API_KEY
+    base_url = LLM_BASE_URL
+    if not api_key:
+        api_key = get("OPENAI_API_KEY", "")
+        base_url = None  # default OpenAI endpoint
+    client = OpenAI(api_key=api_key, base_url=base_url)
     vectors: list[list[float]] = []
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        resp = client.embeddings.create(
-            model="text-embedding-3-small", input=batch,
-            dimensions=EMBED_DIM,
-        )
+        resp = client.embeddings.create(model=EMBED_MODEL, input=batch)
         vectors.extend(d.embedding for d in resp.data)
     return vectors
 
