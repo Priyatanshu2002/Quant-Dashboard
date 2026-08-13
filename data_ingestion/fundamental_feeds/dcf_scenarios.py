@@ -9,12 +9,29 @@ Extends the core `compute_dcf` with:
 """
 from __future__ import annotations
 
-from typing import Any
+import math
 
 from data_ingestion.fundamental_feeds.dcf_calculator import DCFResult, compute_dcf
 
 BASE_WACCS = (0.08, 0.09, 0.10, 0.11, 0.12)
 BASE_TERMINAL_GROWTHS = (0.015, 0.02, 0.025, 0.03, 0.035)
+
+# Sane growth bound for the projection. Snapshot revenue_yoy_growth values that
+# are non-finite or beyond ±50% are almost always bad data (e.g. a bad quarter
+# comparison) — using them would explode the terminal value into a nonsensical
+# intrinsic figure. Fall back to a conservative default.
+_MIN_G, _MAX_G = -0.5, 1.0
+_DEFAULT_G = 0.06
+
+
+def _growth(snap: dict) -> float:
+    try:
+        g = float(snap.get("revenue_yoy_growth"))
+    except (TypeError, ValueError):
+        return _DEFAULT_G
+    if not math.isfinite(g) or not (_MIN_G <= g <= _MAX_G):
+        return _DEFAULT_G
+    return g
 
 
 def _shares_and_debt(snap: dict) -> tuple[float | None, float]:
@@ -32,7 +49,7 @@ def dcf_sensitivity_grid(snap: dict, waccs: tuple[float, ...] = BASE_WACCS,
     if not fcf:
         return {"waccs": list(waccs), "terminal_growths": list(terminal_growths),
                 "grid": [], "base_wacc": 0.10, "base_terminal_growth": 0.025}
-    growth = snap.get("revenue_yoy_growth") or 0.06
+    growth = _growth(snap)
     shares, net_debt = _shares_and_debt(snap)
     price = snap.get("current_price")
     grid = []
@@ -61,7 +78,7 @@ def apply_dcf_to_snapshot(snap: dict, wacc: float = 0.10,
     fcf = snap.get("free_cash_flow")
     if not fcf:
         return None
-    growth = snap.get("revenue_yoy_growth") or 0.06
+    growth = _growth(snap)
     shares, net_debt = _shares_and_debt(snap)
     result = compute_dcf(fcf, growth, terminal_growth_rate=terminal_growth,
                          wacc=wacc, shares_outstanding=shares, net_debt=net_debt,
@@ -89,7 +106,7 @@ def dcf_bundle(snap: dict | None) -> dict | None:
         "pv_of_terminal_value": result.pv_of_terminal_value if result else None,
         "inputs": {
             "ttm_free_cash_flow": snap.get("free_cash_flow"),
-            "revenue_growth_rate": snap.get("revenue_yoy_growth") or 0.06,
+            "revenue_growth_rate": _growth(snap),
             "net_debt": snap.get("net_debt") or 0.0,
             "market_cap": snap.get("market_cap"),
             "current_price": snap.get("current_price"),
