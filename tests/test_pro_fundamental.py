@@ -275,3 +275,30 @@ def test_fcff_sensitivity_shape():
         vals = [s["grid"][r][col] for r in range(5)]
         for a, b in zip(vals, vals[1:]):
             assert b <= a
+
+
+# ── End-to-end build_model against the live dev DB (integration smoke) ─
+import pytest as _pt
+
+
+def test_build_model_live_smoke():
+    """Build the pro model for a symbol in the dev DB; skip if no data."""
+    try:
+        from core.db import get_storage
+        from valuation.cfa_model import build_model
+    except Exception:  # pragma: no cover
+        _pt.skip("storage unavailable")
+    db = get_storage()
+    m = None
+    for sym in ("MSFT", "AAPL", "NVDA"):
+        m = build_model(db, sym)
+        if m:
+            break
+    if m is None:
+        _pt.skip("no symbol with 3-statement data in dev DB")
+    assert "discount_rates" in m and "wacc" in m["discount_rates"]
+    assert "dcf" in m and "intrinsic_value_per_share" in m["dcf"]
+    assert "ratios" in m and len(m["ratios"]) > 5
+    assert "quality" in m and "piotroski" in m["quality"]
+    assert "relative" in m and "multiples" in m["relative"]
+    assert "scenarios" in m and set(m["scenarios"].keys()) == {"base", "bull", "bear"}

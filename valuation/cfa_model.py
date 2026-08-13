@@ -27,6 +27,12 @@ from __future__ import annotations
 from typing import Any
 
 from core.logging import get_logger
+from valuation.beta import estimate_beta
+from valuation.discount_rates import estimate_discount_rates
+from valuation.fcff_model import FCFFInputs, fcff_scenarios, fcff_sensitivity, project_fcff
+from valuation.quality import evaluate_quality
+from valuation.ratios import compute_ratios, flag_health
+from valuation.relative import compute_multiples, mismatch_check
 
 log = get_logger(__name__)
 
@@ -80,6 +86,7 @@ def ltm_figures(statements: dict[str, list[dict]], periods: int = 4) -> dict:
     da = _sum("cashflow", "depreciation")
     sbc = _sum("cashflow", "stock_based_comp")
     dnwc = _sum("cashflow", "change_in_working_capital")
+    dividends_paid = _sum("cashflow", "dividends_paid")
 
     pre_tax = (ni + tax) if (ni is not None and tax is not None) else None
     eff_tax = (tax / pre_tax) if (pre_tax and pre_tax > 0) else None
@@ -113,6 +120,8 @@ def ltm_figures(statements: dict[str, list[dict]], periods: int = 4) -> dict:
         "equity": _num(bal.get("shareholders_equity")),
         "retained_earnings": _num(bal.get("retained_earnings")),
         "shares_outstanding": _num(inc.get("shares_outstanding")),
+        "dividends_paid": dividends_paid,
+        "eps": _num(inc.get("eps_diluted")),
         "balance_period": bal.get("period"),
     }
 
@@ -232,8 +241,14 @@ def scenarios(ltm: dict, growth: float, wacc_val: float, terminal_growth: float,
 # Top-level builder
 # ─────────────────────────────────────────────────────────────────────
 def build_model(db, symbol: str, rf: float | None = None,
-                beta: float = DEFAULT_BETA, erp: float = DEFAULT_ERP) -> dict | None:
-    """Build the full CFA model dict for a symbol (None if insufficient data)."""
+                beta: float | None = None, erp: float | None = None) -> dict | None:
+    """Build the full pro-grade valuation model dict for a symbol.
+
+    Returns a dict with: WACC (discount rates), the driver-based FCFF DCF
+    projection + scenarios + sensitivity, the full CFA ratio catalogue, quality
+    models (Piotroski/Altman Z/Beneish/earnings-quality flags), and relative
+    valuation multiples. Returns None when data is insufficient.
+    """
     symbol = symbol.upper()
     statements = load_statements(db, symbol)
     if len(statements["income"]) < 4 or len(statements["cashflow"]) < 4:
@@ -244,35 +259,96 @@ def build_model(db, symbol: str, rf: float | None = None,
         return None
 
     snap = db.query_latest_fundamentals(symbol) or {}
+    profile = db.get_company_profile(symbol) or {}
     market_cap = _num(snap.get("market_cap")) or _num(snap.get("market_cap"))
     price = _num(snap.get("current_price"))
     if not price:
         ohlcv = db.query_ohlcv(symbol)
         if not ohlcv.empty:
             price = float(ohlcv["close"].dropna().iloc[-1])
-
-    growth = revenue_growth(statements, ltm)
     rf = rf if rf is not None else _latest_rf(db)
-    w = wacc(ltm, market_cap, rf, erp=erp, beta=beta)
-    wacc_val = w["wacc"]
 
-    base = run_dcf(ltm, growth, wacc_val, TERMINAL_GROWTH, market_cap, price)
-    scen = scenarios(ltm, growth, wacc_val, TERMINAL_GROWTH, market_cap, price)
-    grid = _sensitivity(ltm, growth, market_cap, price)
+    # Real beta from price history, then full discount-rate stack
+    if beta is None:
+        beta_est = estimate_beta(symbol, db)
+        beta = beta_est.get("beta") or None
+    country = (profile.get("country") or "").upper() or None
+    dr = estimate_discount_rates(snap, beta=beta, rf=rf, erp=erp, country=country)
+    rf = dr.risk_free  # estimate_discount_rates falls back to a sane default if None
+
+    # Build FCFF inputs from the real statements + snapshot
+    equity_bs = _num(ltm.get("equity")) or 0.0
+    cash = _num(ltm.get("cash")) or 0.0
+    debt = _num(ltm.get("total_debt")) or 0.0
+    invested_capital = debt + equity_bs - cash
+    sales_to_capital = (ltm["revenue"] / invested_capital) if invested_capital > 0 else None
+    growth = revenue_growth(statements, ltm)
+    shares = _num(ltm.get("shares_outstanding")) or _num(snap.get("shares_outstanding"))
+
+    inp = FCFFInputs(
+        revenue=ltm["revenue"], ebit=ltm.get("ebit") or 0.0,
+        tax_rate=ltm.get("effective_tax_rate") or 0.21, marginal_tax_rate=0.25,
+        invested_capital=invested_capital, sales_to_capital=sales_to_capital,
+        debt=debt, cash=cash,
+        non_operating_assets=_num(snap.get("non_operating_assets")) or 0.0,
+        minority_interest=_num(snap.get("minority_interest")) or 0.0,
+        preferred_stock=_num(snap.get("preferred_stock")) or 0.0,
+        shares_outstanding=shares, price=price,
+        riskfree=rf, initial_wacc=dr.wacc, stable_wacc=rf + 0.045,
+        stable_growth=rf, stable_roc=None,
+        growth_next=max(0.0, growth), growth_2_5=max(0.0, growth),
+        target_margin=ltm.get("ebit_margin"),
+    )
+    dcf = project_fcff(inp)
+    if "error" in dcf:
+        return None
+
+    # Ratio catalogue, quality models, relative multiples
+    ratios = compute_ratios(statements["income"], statements["balance"],
+                            statements["cashflow"], market_cap=market_cap,
+                            price=price, shares_outstanding=shares)
+    quality = evaluate_quality(statements["income"], statements["balance"],
+                               statements["cashflow"], market_cap=market_cap)
+    metrics = {
+        "revenue": ltm.get("revenue"), "net_income": ltm.get("net_income"),
+        "ebitda": ltm.get("ebitda"), "ebit": ltm.get("ebit"), "fcff": ltm.get("fcff"),
+        "equity": equity_bs, "total_debt": debt, "cash": cash,
+        "dividends_paid": ltm.get("dividends_paid"), "eps": ltm.get("eps"),
+        "growth": growth,
+    }
+    multiples = compute_multiples(metrics, market_cap=market_cap, price=price,
+                                  shares_outstanding=shares,
+                                  forward_eps=_num(snap.get("forward_eps")))
+    mismatches = mismatch_check(quality, multiples)
 
     return {
         "symbol": symbol,
         "as_of": str(ltm.get("balance_period")),
-        "profile": db.get_company_profile(symbol),
+        "profile": profile,
         "statement_model": _statement_model(statements, ltm),
-        "wacc": w,
-        "dcf": base,
-        "scenarios": scen,
-        "sensitivity": grid,
+        "discount_rates": {
+            "risk_free": dr.risk_free, "erp": dr.erp, "erp_source": dr.erp_source,
+            "beta": dr.beta, "cost_of_equity": dr.cost_of_equity,
+            "cost_of_debt": dr.cost_of_debt, "cost_of_debt_after_tax": dr.cost_of_debt_after_tax,
+            "tax_rate": dr.tax_rate, "w_e": dr.w_e, "w_d": dr.w_d,
+            "wacc": dr.wacc, "country": dr.country,
+            "synthetic_rating": dr.synthetic_rating,
+            "cost_of_debt_source": dr.cost_of_debt_source, "coverage": dr.coverage,
+        },
+        "dcf": dcf,
+        "scenarios": fcff_scenarios(inp),
+        "sensitivity": fcff_sensitivity(inp),
+        "ratios": ratios,
+        "ratio_health_flags": flag_health(ratios),
+        "quality": quality,
+        "relative": {"multiples": multiples, "mismatches": mismatches},
         "assumptions": {
-            "erp": erp, "beta": beta, "debt_spread": DEBT_SPREAD,
-            "terminal_growth": TERMINAL_GROWTH, "projection_years": PROJECTION_YEARS,
-            "risk_free_source": "macro_10y (or default 4.2%)",
+            "beta_source": "regression (fallback 1.0)" if beta else "fallback 1.0",
+            "risk_free_source": "macro_10y (or default 3.95%)",
+            "erp_source": dr.erp_source,
+            "projection_years": inp.projection_years,
+            "terminal_growth": rf,
+            "sales_to_capital": inp.eff_sales_to_capital(),
         },
     }
 
