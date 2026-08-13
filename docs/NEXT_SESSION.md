@@ -61,6 +61,21 @@ Verified at HTTP layer: `/api/model?symbol=AAPL` returns a coherent model (WACC 
   Verify: `curl -s http://127.0.0.1:9222/json/version` returns `webSocketDebuggerUrl`.
 - Verified render (AAPL): WACC 8.63%, intrinsic $200 vs price $302 (margin −33.8%), scenarios Base $200/Bull $220/Bear $182, 5×5 sensitivity, 3-statement history, balance equation ✓. Also fixed a viewer bug: WACC weight row rendered `NaN%` — now `98% / 2%` (committed `3bb5ff5`).
 
+**Unified "agentic-OS" dashboard (architecture gap closed) — committed `96078c2`:**
+
+The whole system now lives on ONE localhost origin: **http://127.0.0.1:8000/** (no more separate vite :3001 + bolt-on /model). The API server serves the built React app (`ui/dist`) at `/` with SPA fallback:
+- Pages: `/` Screener · `/financials` · `/valuation` (new — CFA 3-statement + DCF model as a first-class React page) · `/backtest` · `/portfolio` · `/debate`.
+- Old `/model` and `/model.html` now **301-redirect → `/valuation`**.
+- `valuation/viewer.html` is no longer served at `/model` (the React Valuation page replaced it); the file remains in the repo.
+- React source lives in `ui/src`; build with `cd ui && npm run build` (output `ui/dist`, gitignored — regenerated, not committed).
+- Build blockers in `financials.tsx` fixed (unused `BarChart`, `analyzed_events` on wrong object, unescaped `<` in JSX).
+
+**To (re)start the API server (serves both API and dashboard on :8000):**
+  ```bash
+  python main.py serve --port 8000
+  ```
+  No separate UI server needed — the dashboard is served by the same process.
+
 ---
 
 ## 4. BLOCKED ITEMS — Need the User's Input / Action
@@ -101,12 +116,16 @@ python orchestrator.py --now ingest_macro
 python orchestrator.py --now ingest_profiles
 python orchestrator.py --now ingest_news
 
-# Serve the API (currently running on :8000)
+# Serve the API + unified dashboard (currently running on :8000)
 python main.py serve --port 8000
 
-# CFA model (live)
-#   browser:  http://127.0.0.1:8000/model
+# Agentic-OS dashboard (single origin — no separate UI server)
+#   browser:  http://127.0.0.1:8000/            (nav: Screener/Financials/Valuation/Backtests/Portfolio/Debate)
+#   valuation: http://127.0.0.1:8000/valuation  (CFA 3-statement + DCF model)
 #   JSON:     http://127.0.0.1:8000/api/model?symbol=AAPL
+
+# Rebuild the React UI after editing ui/src (dist is gitignored)
+cd ui && npm run build
 
 # Tests + lint
 python -m pytest -q
