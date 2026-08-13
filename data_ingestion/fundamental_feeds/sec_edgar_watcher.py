@@ -5,10 +5,9 @@ User-Agent with contact info; see https://www.sec.gov/os/accessing-edgar-data.
 """
 from __future__ import annotations
 
-import datetime as dt
 import time
 import xml.etree.ElementTree as ET
-from typing import Iterable
+from collections.abc import Iterable
 
 import requests
 
