@@ -35,3 +35,7 @@ ui/dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# scratch reference extractions (not part of the codebase)
+.val_extract/
+ref_extract/
