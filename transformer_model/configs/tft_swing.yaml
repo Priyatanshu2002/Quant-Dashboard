@@ -1,0 +1,12 @@
+# TFT — swing timeframe (primary)
+timeframe: SWING
+target: future_return_5d
+max_encoder_length: 120
+max_prediction_length: 5
+batch_size: 64
+hidden_size: 128
+attention_head_size: 4
+dropout: 0.10
+hidden_continuous_size: 64
+learning_rate: 0.001
+max_epochs: 30

@@ -1,0 +1,30 @@
+{
+  "dashboard": {
+    "title": "Agonistes — System Health",
+    "uid": "agonistes-health",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "OpenRouter API spend ($/day)",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [{ "expr": "sum(rate(agonistes_llm_cost_usd_total[1d]))", "refId": "A" }]
+      },
+      {
+        "id": 2,
+        "title": "Feed events / hour",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [{ "expr": "sum(rate(agonistes_events_total[1h])) by (feed)", "refId": "A" }]
+      },
+      {
+        "id": 3,
+        "title": "DB disk usage",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+        "targets": [{ "expr": "pg_database_size_bytes", "refId": "A" }]
+      }
+    ]
+  }
+}

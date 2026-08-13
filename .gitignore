@@ -1,0 +1,37 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Data (local databases, downloads, checkpoints)
+data/
+*.db
+*.sqlite3
+*.csv.bak
+databases/timescaledb/data/
+databases/qdrant/storage/
+databases/neo4j/data/
+databases/neo4j/logs/
+
+# ML artifacts
+*.pt
+*.ckpt
+mlruns/
+lightning_logs/
+
+# Node / UI
+ui/node_modules/
+ui/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

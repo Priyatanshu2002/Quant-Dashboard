@@ -1,0 +1,12 @@
+# TFT — long-term timeframe
+timeframe: LONGTERM
+target: future_return_20d
+max_encoder_length: 250
+max_prediction_length: 20
+batch_size: 32
+hidden_size: 160
+attention_head_size: 4
+dropout: 0.15
+hidden_continuous_size: 80
+learning_rate: 0.0008
+max_epochs: 40

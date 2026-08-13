@@ -1,0 +1,59 @@
+# Project Agonistes — screener configuration
+
+settings:
+  n_candidates: 10
+  min_score_threshold: 60.0
+  max_per_asset_class: 3
+  rebalance_hours: 1
+
+# Composite signal weights by asset class (plan §2.2)
+signal_weights:
+  CRYPTO:    {technical: 0.35, fundamental: 0.10, sentiment: 0.30, macro: 0.15, momentum: 0.10}
+  EQUITY_US: {technical: 0.25, fundamental: 0.35, sentiment: 0.20, macro: 0.10, momentum: 0.10}
+  EQUITY_IN: {technical: 0.25, fundamental: 0.35, sentiment: 0.20, macro: 0.10, momentum: 0.10}
+  ETF:       {technical: 0.20, fundamental: 0.30, sentiment: 0.15, macro: 0.25, momentum: 0.10}
+  BOND:      {technical: 0.10, fundamental: 0.20, sentiment: 0.10, macro: 0.50, momentum: 0.10}
+  FOREX:     {technical: 0.30, fundamental: 0.10, sentiment: 0.20, macro: 0.30, momentum: 0.10}
+  FNO:       {technical: 0.35, fundamental: 0.25, sentiment: 0.15, macro: 0.10, momentum: 0.15}
+
+# Asset universe (starter set — expand per plan §2.1)
+universe:
+  CRYPTO:
+    - {symbol: BTC-USD, name: Bitcoin}
+    - {symbol: ETH-USD, name: Ethereum}
+    - {symbol: SOL-USD, name: Solana}
+    - {symbol: BNB-USD, name: BNB}
+    - {symbol: XRP-USD, name: XRP}
+    - {symbol: DOGE-USD, name: Dogecoin}
+  EQUITY_US:
+    - {symbol: AAPL, name: Apple, sector: Technology}
+    - {symbol: MSFT, name: Microsoft, sector: Technology}
+    - {symbol: NVDA, name: NVIDIA, sector: Technology}
+    - {symbol: AMZN, name: Amazon, sector: Consumer}
+    - {symbol: GOOGL, name: Alphabet, sector: Technology}
+    - {symbol: META, name: Meta, sector: Technology}
+    - {symbol: TSLA, name: Tesla, sector: Automotive}
+    - {symbol: JPM, name: JPMorgan, sector: Financials}
+    - {symbol: XOM, name: ExxonMobil, sector: Energy}
+    - {symbol: UNH, name: UnitedHealth, sector: Healthcare}
+  EQUITY_IN:
+    - {symbol: RELIANCE.NS, name: Reliance Industries, exchange: NSE}
+    - {symbol: TCS.NS, name: Tata Consultancy, exchange: NSE}
+    - {symbol: HDFCBANK.NS, name: HDFC Bank, exchange: NSE}
+    - {symbol: INFY.NS, name: Infosys, exchange: NSE}
+    - {symbol: SBIN.NS, name: SBI, exchange: NSE}
+  ETF:
+    - {symbol: SPY, name: S&P 500 ETF}
+    - {symbol: QQQ, name: Nasdaq 100 ETF}
+    - {symbol: IWM, name: Russell 2000 ETF}
+    - {symbol: TLT, name: 20Y Treasury ETF}
+    - {symbol: GLD, name: Gold ETF}
+    - {symbol: EEM, name: EM ETF}
+  BOND:
+    - {symbol: ^TNX, name: US 10Y Yield, exchange: CBOE}
+    - {symbol: ^TYX, name: US 30Y Yield, exchange: CBOE}
+  FOREX:
+    - {symbol: EURUSD=X, name: Euro/USD}
+    - {symbol: GBPUSD=X, name: GBP/USD}
+    - {symbol: USDJPY=X, name: USD/JPY}
+    - {symbol: USDINR=X, name: USD/INR}

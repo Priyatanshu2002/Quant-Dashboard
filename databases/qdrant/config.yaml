@@ -1,0 +1,9 @@
+# Qdrant configuration — Project Agonistes (vector store for filings + theses)
+log_level: INFO
+
+storage:
+  snapshots_path: ./snapshots
+
+service:
+  enable_tls: false
+  max_request_size_mb: 32

@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: agonistes-tsdb
+    restart: unless-stopped
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: agonistes
+      POSTGRES_PASSWORD: ${TSDB_PASSWORD}
+      POSTGRES_DB: agonistes
+    volumes:
+      - ./timescaledb/data:/var/lib/postgresql/data
+      - ./timescaledb/init:/docker-entrypoint-initdb.d
+    shm_size: "2g"
+    command: >
+      postgres
+        -c shared_preload_libraries=timescaledb
+        -c shared_buffers=4GB
+        -c work_mem=512MB
+        -c max_connections=200
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: agonistes-qdrant
+    restart: unless-stopped
+    ports: ["6333:6333", "6334:6334"]
+    volumes:
+      - ./qdrant/storage:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: agonistes-neo4j
+    restart: unless-stopped
+    ports: ["7474:7474", "7687:7687"]
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/plugins:/plugins
