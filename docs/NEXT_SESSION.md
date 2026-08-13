@@ -70,6 +70,14 @@ The whole system now lives on ONE localhost origin: **http://127.0.0.1:8000/** (
 - React source lives in `ui/src`; build with `cd ui && npm run build` (output `ui/dist`, gitignored — regenerated, not committed).
 - Build blockers in `financials.tsx` fixed (unused `BarChart`, `analyzed_events` on wrong object, unescaped `<` in JSX).
 
+**Best-in-class UI (design gap closed) — committed `ba0572a`:**
+
+Root cause of the plan/UI mismatch: `styles.css` (the design system) was written but **never imported**, so the whole app rendered unstyled. Now:
+- `main.tsx` imports `styles.css`; `styles.css` rewritten into a comprehensive modern dark trading-desk design system (surfaces, semantic colors, radius, shadow, responsive breakpoint, skeletons, recharts tooltip theming).
+- `App.tsx`: modern shell — fixed sidebar (brand + grouped nav with lucide icons, active states) + sticky blurred topbar (page title, Live status); collapses to top nav under 900px. Added `lucide-react`.
+- All pages migrated: Screener, Backtest (KPI tiles + **real** equity/drawdown curve from `/api/backtest/equity` + regime bars), Portfolio, Debate (side-by-side Bull/Bear), Valuation.
+- **NEW Monitoring page** (plan §11.1) at `/monitoring`: data-feed coverage (11 sources, live row counts), infrastructure status, storage/DB info. Backed by new `GET /api/monitoring` in `core/api_server.py` (uses real tables `market_data` / `llm_analyses` / `macro_snapshots`).
+
 **To (re)start the API server (serves both API and dashboard on :8000):**
   ```bash
   python main.py serve --port 8000
