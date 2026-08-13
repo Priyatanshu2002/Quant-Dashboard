@@ -128,7 +128,20 @@ export default function ValuationPage() {
       </div>
 
       {error && <div className="error-box">⚠ {error}</div>}
+      {data && (data as { error?: string }).error && (
+        <div className="error-box">
+          ⚠ {(data as { error?: string }).error}
+          <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+            This happens when {symbol} doesn't have enough quarterly statements yet —
+            the data backfill may still be running. Retry in a few minutes, or use the
+            Financials page → "⟳ Refresh Data" to pull it on demand.
+          </div>
+        </div>
+      )}
       {!data && !error && <div className="loading">Building CFA 3-statement + DCF model for {symbol}…</div>}
+      {data && !(data as { error?: string }).error && !d && !error && (
+        <div className="empty-note">No valuation model available for {symbol}.</div>
+      )}
 
       {data && d && w && (
         <>
