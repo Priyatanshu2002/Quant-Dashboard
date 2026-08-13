@@ -36,6 +36,15 @@ def node_a_ingestion(state: DebateState) -> DebateState:
         regime = ("CONTRACTION" if vix >= 30 else "LATE_CYCLE" if vix >= 20
                   else "EXPANSION")
 
+    # GraphRAG context from Neo4j (GAP 1). Graceful: empties out when the
+    # graph / Neo4j is unavailable so the debate still runs unenriched.
+    graph_relationships: list[str] = []
+    try:
+        from data_ingestion.graph_feeds.neo4j_writer import query_key_relationships
+        graph_relationships = query_key_relationships(symbol) or []
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Neo4j context unavailable for %s: %s", symbol, exc)
+
     pack = AnalystPack(
         cycle_id=cycle_id,
         symbol=symbol,
@@ -72,6 +81,7 @@ def node_a_ingestion(state: DebateState) -> DebateState:
         reddit_sentiment=sentiment.get("reddit_sentiment", 0.0),
         gdelt_sentiment=sentiment.get("gdelt_sentiment", 0.0),
         yesterday_reflection=data.get("latest_reflection"),
+        graphrag_key_relationships=graph_relationships,
     )
 
     log.info("Node A: AnalystPack ready for %s (cycle %s, composite %.1f)",

@@ -1,0 +1,111 @@
+{
+  "dashboard": {
+    "uid": "agonistes-system-health",
+    "title": "Agonistes — System Health",
+    "tags": ["agonistes", "infra"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "templating": { "list": [] },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Services up (targets)",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "up{job=~\"agonistes-api|timescaledb|qdrant|neo4j\"}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "short", "min": 0, "max": 1 },
+          "overrides": []
+        }
+      },
+      {
+        "id": 2,
+        "title": "TimescaleDB size (bytes)",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "pg_database_size_bytes" }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "bytes" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 3,
+        "title": "TimescaleDB connections",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "sum(pg_stat_activity_count) by (datname)" }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "short" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 4,
+        "title": "API request rate (req/s)",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 12 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(rate(agonistes_http_requests_total[5m])) by (route)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "reqps" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 5,
+        "title": "API latency p95 (s)",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 12 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum(rate(agonistes_http_request_duration_seconds_bucket[5m])) by (le))"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "s" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 6,
+        "title": "Qdrant collection points",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "qdrant_collection_points_total"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "short" },
+          "overrides": []
+        }
+      }
+    ]
+  }
+}

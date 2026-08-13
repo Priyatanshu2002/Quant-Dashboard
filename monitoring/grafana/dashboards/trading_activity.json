@@ -1,0 +1,111 @@
+{
+  "dashboard": {
+    "uid": "agonistes-trading-activity",
+    "title": "Agonistes — Trading Activity",
+    "tags": ["agonistes", "trading"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-7d", "to": "now" },
+    "templating": { "list": [] },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Trades / day",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(increase(agonistes_trades_total[24h])) by (direction)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "short" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 2,
+        "title": "Screener pass rate",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(rate(agonistes_screener_passed_total[1d])) / clamp_min(sum(rate(agonistes_screener_scored_total[1d])), 1)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+          "overrides": []
+        }
+      },
+      {
+        "id": 3,
+        "title": "Gating decisions",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(increase(agonistes_gating_total[1d])) by (decision)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "short" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 4,
+        "title": "Circuit breakers",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(increase(agonistes_circuit_breaker_total[1d])) by (event_type)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "short" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 5,
+        "title": "Portfolio NAV ($)",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 12 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "agonistes_nav_usd" }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "currencyUSD" },
+          "overrides": []
+        }
+      },
+      {
+        "id": 6,
+        "title": "Daily P&L ($)",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 12 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "agonistes_daily_pnl_usd" }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "currencyUSD" },
+          "overrides": []
+        }
+      }
+    ]
+  }
+}

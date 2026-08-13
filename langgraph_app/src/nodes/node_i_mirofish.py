@@ -65,6 +65,21 @@ def node_i_mirofish(state: DebateState) -> DebateState:
         "notional_usd": order.get("notional_usd", 0),
         "strategy": "debate_gated",
     })
+
+    # Archive the debate theses to Qdrant (GAP 2) for future semantic recall.
+    # Graceful: a Qdrant outage never fails the trade cycle.
+    try:
+        from data_ingestion.vector_feeds.qdrant_writer import archive_debate_thesis
+        archive_debate_thesis(
+            symbol=pack.symbol,
+            bull_thesis=state["bull"].thesis_summary if state.get("bull") else "",
+            bear_thesis=state["bear"].thesis_summary if state.get("bear") else "",
+            decision=gating.decision,
+            date=str(dt.datetime.utcnow().date()),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Thesis archive skipped for %s: %s", pack.symbol, exc)
+
     log.info("Node I: cleared — gating + trade logged for %s", pack.symbol)
     return {"trade_logged": True, "circuit_breaker": None}
 

@@ -104,6 +104,9 @@ class AnalystPack(BaseModel):
                          f"(week={self.earnings_week})")
         if self.yesterday_reflection:
             lines.append(f"LESSONS FROM YESTERDAY: {self.yesterday_reflection}")
+        if self.graphrag_key_relationships:
+            lines.append("KNOWLEDGE GRAPH (relationships): "
+                         + " | ".join(self.graphrag_key_relationships))
         return "\n".join(lines)
 
 

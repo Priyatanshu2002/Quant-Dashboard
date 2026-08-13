@@ -298,6 +298,55 @@ def _check_benchmark_results() -> None:
         _write_flag("needs_full_retrain", True)
 
 
+@_retry(attempts=2, backoff=120.0)
+def job_ingest_graph() -> None:
+    """Build/refresh the Neo4j knowledge graph for every symbol (GAP 1).
+
+    Runs weekly after model drift check. Idempotent (MERGE-based) and
+    degrades gracefully when Neo4j is down.
+    """
+    log.info("[WEEKLY] Building Neo4j knowledge graph …")
+    from data_ingestion.graph_feeds.neo4j_writer import (
+        ingest_company_to_neo4j, ingest_management, ingest_peer_relationships,
+        setup_neo4j_schema)
+    from core.db import get_storage
+
+    db = get_storage()
+    if not setup_neo4j_schema():
+        log.info("[WEEKLY] Neo4j unavailable — skipping graph ingest")
+        return
+    symbols = db.symbols() or []
+    ok_companies = ok_peers = ok_mgmt = 0
+    for sym in symbols:
+        try:
+            if ingest_company_to_neo4j(sym, db):
+                ok_companies += 1
+            ok_peers += ingest_peer_relationships(sym, db)
+            ok_mgmt += ingest_management(sym)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[WEEKLY] Graph ingest skip %s: %s", sym, exc)
+    log.info("[WEEKLY] Graph ingest done — %d companies, %d peer/index links, "
+             "%d officers", ok_companies, ok_peers, ok_mgmt)
+
+
+@_retry(attempts=2, backoff=120.0)
+def job_ingest_vectors() -> None:
+    """Ensure Qdrant collections exist (GAP 2).
+
+    Actual per-filing/transcript ingestion is event-driven (SEC watcher,
+    earnings ingesters, node_i archiving). This job guarantees the
+    collections are present each week.
+    """
+    log.info("[WEEKLY] Ensuring Qdrant vector collections …")
+    from data_ingestion.vector_feeds.qdrant_writer import setup_qdrant_collections
+
+    try:
+        setup_qdrant_collections()
+        log.info("[WEEKLY] Qdrant collections ensured")
+    except Exception as exc:  # noqa: BLE001
+        log.info("[WEEKLY] Qdrant unavailable — skipping (%s)", exc)
+
+
 # ---------------------------------------------------------------------------
 # ── MONTHLY JOBS ─────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
@@ -419,6 +468,10 @@ ALL_JOBS = {
     # Weekly
     "model_drift_check":    Job("model_drift_check",    job_model_drift_check,
                                 "CUSUM drift test on model prediction residuals"),
+    "ingest_graph":         Job("ingest_graph",         job_ingest_graph,
+                                "Build/refresh Neo4j knowledge graph (GAP 1)"),
+    "ingest_vectors":       Job("ingest_vectors",       job_ingest_vectors,
+                                "Ensure Qdrant vector collections (GAP 2)"),
     "quick_benchmark":      Job("quick_benchmark",      job_quick_benchmark,
                                 "4-model quick strategy_builder benchmark"),
     # Monthly
@@ -545,6 +598,8 @@ def run_scheduler(dry_run: bool = False) -> None:
             if STOP.is_set():
                 return
             run_job(ALL_JOBS["model_drift_check"], dry_run=dry_run)
+            run_job(ALL_JOBS["ingest_graph"],      dry_run=dry_run)
+            run_job(ALL_JOBS["ingest_vectors"],    dry_run=dry_run)
             # Run quick benchmark if drift flagged OR every 4 weeks
             last_benchmark = _read_flag("last_run_quick_benchmark")
             needs = _read_flag("needs_benchmark", False)
