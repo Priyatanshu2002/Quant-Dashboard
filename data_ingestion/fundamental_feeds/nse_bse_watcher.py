@@ -24,6 +24,35 @@ log = get_logger(__name__)
 BSE_ANNOUNCEMENTS = "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
 NSE_RESULTS_URL = "https://www.nseindia.com/api/corporates-announcements"
 
+# Keyword → event class for Indian corporate announcements (C4 Task 1).
+_EVENT_RULES = [
+    ("RESULTS", ("results", "financial results", "quarterly results", "annual results")),
+    ("DIVIDEND", ("dividend",)),
+    ("BUYBACK", ("buyback", "buy back")),
+    ("BONUS", ("bonus", "stock split")),
+    ("BOARD_MEETING", ("board meeting", "board to consider")),
+    ("RIGHTS", ("rights issue", "rights entitlement")),
+    ("DEBT", ("debenture", "bond", "ncd", "loan")),
+    ("M&A", ("merger", "acquisition", "amalgamation", "scheme of arrangement")),
+    ("FUNDRAISE", ("qip", "fpo", "preferential issue", "qualified institutional")),
+    ("INSIDER", ("insider", "pledge", "promoter")),
+    ("AUDIT", ("audit", "statutory auditor", "independent auditor")),
+    ("CORPORATE_GOVERNANCE", ("csr", "governance", "compliance officer")),
+]
+
+
+def announcement_type(title: str, body: str = "") -> str:
+    """Classify an NSE/BSE announcement into a material-event class.
+
+    Returns the first matching class, or 'OTHER'. Match is case-insensitive
+    over title + body. Deterministic and pure — unit-testable on fixtures.
+    """
+    text = f"{title} {body}".lower()
+    for cls, kws in _EVENT_RULES:
+        if any(k in text for k in kws):
+            return cls
+    return "OTHER"
+
 
 class NseBseWatcher:
     def __init__(self, symbols: Iterable[str], storage: Storage | None = None,
@@ -73,10 +102,15 @@ class NseBseWatcher:
                 if key in self._seen:
                     continue
                 self._seen.add(key)
-                log.info("New NSE/BSE announcement: %s", key)
+                title = str(item.get("HEADING") or item.get("ATTACHMENTNAME")
+                            or item.get("sm_name") or "")
+                body = str(item.get("DETAILS") or item.get("desc") or "")
+                event_type = announcement_type(title, body)
+                log.info("New NSE/BSE announcement: %s [%s]", key, event_type)
                 import asyncio
                 asyncio.run(bus.publish(EVENT_FUNDAMENTAL, {
-                    "source": "NSEBSE", "raw": item,
+                    "source": "NSEBSE", "event_type": event_type,
+                    "raw": item,
                 }))
             time.sleep(self.poll_seconds)
 

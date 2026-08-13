@@ -26,6 +26,35 @@ HEADERS = {
 
 FILING_TYPES = ["10-K", "10-Q", "8-K"]
 
+# 8-K Item → material-event class (C4 Task 2). Item numbers appear in the
+# filing title/URL e.g. "8-K ... Item 2.02". If no item is found we fall
+# back to the filing type's default class.
+_ITEM_MATERIAL = {
+    "1.01": "AGREEMENT", "1.02": "AGREEMENT", "2.01": "ACQUISITION",
+    "2.02": "EARNINGS", "2.03": "DEBT", "2.04": "IMPAIRMENT",
+    "2.05": "RESTRUCTURING", "2.06": "ASSET_SALE", "3.01": "DELISTING",
+    "4.01": "AUDITOR_CHANGE", "4.02": "AUDITOR_OPINION", "5.02": "MANAGEMENT_CHANGE",
+    "5.03": "BYLAWS", "5.07": "SHAREHOLDER_VOTE", "7.01": "DISCLOSURE",
+    "8.01": "OTHER_EVENT",
+}
+_DEFAULT_MATERIAL = {"10-K": "ANNUAL_REPORT", "10-Q": "QUARTERLY_REPORT",
+                     "8-K": "8K_EVENT"}
+
+
+def material_event(filing_type: str, title: str = "") -> str:
+    """Map a filing (type + optional title) to a material-event class.
+
+    10-K → ANNUAL_REPORT, 10-Q → QUARTERLY_REPORT; 8-K uses the item number
+    extracted from the title (e.g. 'Item 2.02' → EARNINGS), else 8K_EVENT.
+    """
+    t = (filing_type or "").upper()
+    if t == "8-K":
+        for item, cls in _ITEM_MATERIAL.items():
+            if f"item {item}" in title.lower():
+                return cls
+        return _DEFAULT_MATERIAL["8-K"]
+    return _DEFAULT_MATERIAL.get(t, "OTHER")
+
 
 def load_cik_map() -> dict[str, str]:
     """ticker → CIK (zero-padded 10 digits)."""
@@ -88,6 +117,7 @@ class SecEdgarWatcher:
                         f["ticker"] = ticker.upper()
                         f["filing_type"] = ftype
                         f["cik"] = cik
+                        f["material_event"] = material_event(ftype, f.get("title", ""))
                         new_filings.append(f)
                 except Exception as e:  # noqa: BLE001
                     log.debug("EDGAR poll %s %s failed: %s", ticker, ftype, e)
