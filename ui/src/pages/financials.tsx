@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart,
+  Bar, CartesianGrid, ComposedChart, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { api, type FinancialsDTO } from "../api/client";
@@ -285,7 +285,7 @@ export default function FinancialsPage() {
               ) : (
                 <div className="empty-note">Sensitivity requires a computed DCF.</div>
               )}
-              <div className="chart-tip">Highlighted cell = base case. Green cells are >75th percentile intrinsic value; red are <25th.</div>
+              <div className="chart-tip">Highlighted cell = base case. Green cells are &gt;75th percentile intrinsic value; red are &lt;25th.</div>
             </Panel>
           </div>
 
@@ -455,7 +455,7 @@ export default function FinancialsPage() {
               )}
             </Panel>
 
-            <Panel title="News Sentiment (LLM)" hint={`${data.llm_analyses.news?.model ?? "—"} · ${data.llm_analyses.news?.analyzed_events ?? 0} headlines`}>
+            <Panel title="News Sentiment (LLM)" hint={`${data.llm_analyses.news?.model ?? "—"} · ${data.llm_analyses.news?.verdict?.analyzed_events ?? 0} headlines`}>
               {newsLLM ? (
                 <>
                   <div className="analyst-head">

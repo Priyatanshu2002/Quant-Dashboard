@@ -149,6 +149,92 @@ export interface BacktestReportDTO {
   performance_by_regime: Record<string, number>;
 }
 
+// ── CFA 3-statement + DCF valuation model (/api/model) ──────────────
+export interface WaccModel {
+  risk_free: number;
+  erp: number;
+  beta: number;
+  cost_of_equity: number;
+  cost_of_debt: number;
+  cost_of_debt_after_tax: number;
+  effective_tax_rate: number;
+  equity_value: number;
+  debt_value: number;
+  w_e: number;
+  w_d: number;
+  wacc: number;
+}
+
+export interface DcfProjection {
+  year: number;
+  growth: number;
+  fcff: number;
+  discount_factor: number;
+  pv: number;
+}
+
+export interface DcfModel {
+  base_fcff: number;
+  projection_years: number;
+  terminal_growth: number;
+  net_debt: number;
+  projections: DcfProjection[];
+  pv_of_projected_fcf: number;
+  pv_of_terminal_value: number;
+  terminal_value: number;
+  enterprise_value: number;
+  equity_value: number;
+  shares_outstanding: number;
+  intrinsic_value_per_share: number | null;
+  current_price: number | null;
+  margin_of_safety: number | null;
+  upside_downsides_pct: number | null;
+}
+
+export interface Scenario {
+  label: string;
+  growth: number;
+  margin_adj: number;
+  intrinsic_value_per_share: number | null;
+  margin_of_safety: number | null;
+}
+
+export interface SensitivityGrid {
+  waccs: number[];
+  terminal_growths: number[];
+  grid: (number | null)[][];
+}
+
+export interface StatementSeries {
+  period: string;
+  value: number;
+}
+
+export interface StatementModel {
+  income: StatementSeries[];
+  net_income: StatementSeries[];
+  operating_cash_flow: StatementSeries[];
+  free_cash_flow: StatementSeries[];
+  total_assets: StatementSeries[];
+  total_debt: StatementSeries[];
+  equity: StatementSeries[];
+  ltm: Record<string, unknown>;
+  balance_equation_check: boolean | null;
+  linkage: { fcff_identity: string };
+}
+
+export interface ValuationDTO {
+  symbol: string;
+  as_of: string;
+  profile: CompanyProfile | null;
+  statement_model: StatementModel;
+  wacc: WaccModel;
+  dcf: DcfModel;
+  scenarios: Scenario[];
+  sensitivity: SensitivityGrid;
+  assumptions: Record<string, unknown>;
+}
+
 export const api = {
   screener: () => get<ScreenerRow[]>("/screener/top"),
   backtest: (symbol = "SPY") => get<BacktestReportDTO>(`/backtest/report?symbol=${symbol}`),
@@ -157,6 +243,7 @@ export const api = {
   sentiment: (symbol = "AAPL", hours = 72) =>
     get<SentimentDTO>(`/sentiment?symbol=${symbol}&hours=${hours}`),
   debate: (limit = 10) => get<Record<string, unknown>[]>(`/debate/recent?limit=${limit}`),
+  valuation: (symbol = "AAPL") => get<ValuationDTO>(`/model?symbol=${symbol}`),
   refreshFundamentals: (symbol = "AAPL") => post<Record<string, unknown>>(`/fundamentals/refresh?symbol=${symbol}`),
   refreshSentiment: (symbol = "AAPL") => post<Record<string, unknown>>(`/sentiment/refresh?symbol=${symbol}`),
 };

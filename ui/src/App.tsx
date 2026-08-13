@@ -4,10 +4,12 @@ import FinancialsPage from "./pages/financials";
 import BacktestResultsPage from "./pages/backtest_results";
 import PortfolioPage from "./pages/portfolio";
 import DebateViewerPage from "./pages/debate_viewer";
+import ValuationPage from "./pages/valuation";
 
 const NAV = [
   { to: "/", label: "Screener", end: true },
   { to: "/financials", label: "Financials" },
+  { to: "/valuation", label: "Valuation" },
   { to: "/backtest", label: "Backtests" },
   { to: "/portfolio", label: "Portfolio" },
   { to: "/debate", label: "Debate" },
@@ -39,6 +41,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<ScreenerPage />} />
           <Route path="/financials" element={<FinancialsPage />} />
+          <Route path="/valuation" element={<ValuationPage />} />
           <Route path="/backtest" element={<BacktestResultsPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/debate" element={<DebateViewerPage />} />

@@ -281,24 +281,66 @@ class AgonistesHandler(BaseHTTPRequestHandler):
 
         return {"error": f"unknown path {path}"}
 
-    def _send_html(self, html: str, status: int = 200) -> None:
-        body = html.encode("utf-8")
+    def _redirect(self, location: str, status: int = 301) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    @staticmethod
+    def _mime(path: str) -> str:
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        return {
+            "html": "text/html; charset=utf-8", "js": "application/javascript",
+            "mjs": "application/javascript", "css": "text/css",
+            "json": "application/json", "svg": "image/svg+xml",
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "ico": "image/x-icon", "woff2": "font/woff2", "woff": "font/woff",
+        }.get(ext, "application/octet-stream")
+
+    def _serve_spa(self, path: str) -> bool:
+        """Serve the built React app (ui/dist) at '/'; return True if handled.
+
+        The whole agentic-OS dashboard lives under one origin (:8000) — no
+        separate dev-server address. Any non-API path that isn't a real file
+        falls back to index.html (SPA routing).
+        """
+        from pathlib import Path
+        dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
+        if not dist.is_dir():
+            return False
+        rel = path.lstrip("/") or "index.html"
+        # guard against path traversal
+        target = (dist / rel).resolve()
+        if not str(target).startswith(str(dist.resolve())):
+            return False
+        if target.is_file():
+            body = target.read_bytes()
+            ctype = self._mime(str(target))
+        else:
+            # SPA fallback for client-side routes (e.g. /financials, /valuation)
+            idx = dist / "index.html"
+            if not idx.is_file():
+                return False
+            body = idx.read_bytes()
+            ctype = "text/html; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        return True
 
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        # Live CFA 3-statement + DCF model viewer
+        # Unify the old standalone CFA viewer into the app's Valuation page.
         if parsed.path in ("/model", "/model.html"):
-            from pathlib import Path
-            viewer = Path(__file__).resolve().parent.parent / "valuation" / "viewer.html"
-            self._send_html(viewer.read_text(encoding="utf-8") if viewer.exists()
-                            else "<h1>viewer.html missing</h1>")
+            self._redirect("/valuation")
             return
+        if not parsed.path.startswith("/api/"):
+            if self._serve_spa(parsed.path):
+                return
         try:
             self._send(self._route("GET", parsed.path, qs))
         except Exception as e:  # noqa: BLE001
