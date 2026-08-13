@@ -149,6 +149,13 @@ class Storage:
     def write_macro_snapshot(self, macro: dict) -> None: ...
     def query_latest_macro(self) -> dict | None: ...
 
+    # ── full-text search corpus (R4) ──
+    def index_corpus_doc(self, symbol: str, kind: str, title: str = "",
+                         body: str = "", url: str = "", ts: Any = None,
+                         source: str = "") -> int: ...
+    def search_corpus(self, query: str, limit: int = 20) -> list[dict]: ...
+    def reindex_corpus(self) -> int: ...
+
     # ── calendars ──
     def write_earnings_dates(self, symbol: str, dates: Iterable[Any]) -> None: ...
     def get_next_earnings_date(self, symbol: str) -> date | None: ...
@@ -201,6 +208,16 @@ CREATE TABLE IF NOT EXISTS sentiment_events (
     themes TEXT, tone REAL, raw TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_se_sym ON sentiment_events (symbol, ts);
+
+CREATE TABLE IF NOT EXISTS corpus_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL, kind TEXT NOT NULL, title TEXT,
+    body TEXT, url TEXT, ts TEXT, source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_corpus_sym ON corpus_docs (symbol, kind);
+CREATE VIRTUAL TABLE IF NOT EXISTS corpus_fts USING fts5(
+    symbol, kind, title, body, url
+);
 
 CREATE TABLE IF NOT EXISTS macro_snapshots (
     ts TEXT NOT NULL, us_10y_yield REAL, us_2y_yield REAL, fed_funds_rate REAL,
@@ -419,7 +436,8 @@ class SQLiteStorage(Storage):
 
     def query_ohlcv(self, symbol: str, start: Any = None, end: Any = None,
                     interval: str = "1d") -> pd.DataFrame:
-        sql = "SELECT time, open, high, low, close, volume, dollar_volume FROM market_data WHERE symbol=? AND interval=?"
+        sql = ("SELECT time, open, high, low, close, volume, dollar_volume "
+               "FROM market_data WHERE symbol=? AND interval=?")
         args: list[Any] = [symbol, interval]
         if start is not None:
             sql += " AND time >= ?"
@@ -635,6 +653,15 @@ class SQLiteStorage(Storage):
                  float(score), float(source_weight), headline, url,
                  full_text, created_at, upvotes, num_comments, themes, tone,
                  json.dumps(raw, default=str) if raw else None))
+        # R4: mirror headlines/full-text into the search corpus so news is
+        # findable via FTS (kind = source, e.g. NEWS/GOOGLE/REDDIT/GDELT).
+        if headline or full_text:
+            try:
+                self.index_corpus_doc(symbol, f"SENTIMENT_{source}",
+                                      title=headline, body=full_text or headline,
+                                      url=url, ts=ts or _utc_now(), source=source)
+            except Exception:  # noqa: BLE001
+                pass
 
     def query_sentiment_events(self, symbol: str, hours: int = 24) -> list[dict]:
         cutoff = _as_naive_utc(_utc_now() - timedelta(hours=hours)).isoformat(sep=" ")
@@ -799,6 +826,97 @@ class SQLiteStorage(Storage):
         with self._session() as conn:
             row = conn.execute("SELECT * FROM macro_snapshots ORDER BY ts DESC LIMIT 1").fetchone()
         return dict(row) if row else None
+
+    # ── full-text search corpus (R4) ──
+    def index_corpus_doc(self, symbol: str, kind: str, title: str = "",
+                         body: str = "", url: str = "", ts: Any = None,
+                         source: str = "") -> int:
+        """Index one searchable doc (news, filing, analysis) into corpus_docs
+        + the FTS5 index. Returns the doc id (dedup on symbol/kind/title)."""
+        symbol = symbol.upper()
+        title = title or ""
+        with self._session() as conn:
+            existing = conn.execute(
+                "SELECT id FROM corpus_docs WHERE symbol=? AND kind=? AND title=? LIMIT 1",
+                (symbol, kind.upper(), title)).fetchone()
+            ts_str = _as_naive_utc(ts).isoformat(sep=" ") if ts is not None else None
+            if existing:
+                doc_id = existing["id"]
+                conn.execute(
+                    "UPDATE corpus_docs SET body=?, url=?, ts=?, source=? WHERE id=?",
+                    (body, url, ts_str, source, doc_id))
+            else:
+                cur = conn.execute(
+                    "INSERT INTO corpus_docs (symbol, kind, title, body, url, ts, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (symbol, kind.upper(), title, body, url, ts_str, source))
+                doc_id = cur.lastrowid
+            # Sync the standalone FTS5 index, aligned to the same rowid.
+            try:
+                conn.execute(
+                    "INSERT INTO corpus_fts(rowid, symbol, kind, title, body, url) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (doc_id, symbol, kind.upper(), title, body, url))
+            except sqlite3.IntegrityError:
+                conn.execute(
+                    "UPDATE corpus_fts SET symbol=?, kind=?, title=?, body=?, url=? "
+                    "WHERE rowid=?",
+                    (symbol, kind.upper(), title, body, url, doc_id))
+            except sqlite3.OperationalError:
+                pass  # FTS5 unavailable (rare) — LIKE fallback covers search
+        return doc_id
+
+    def search_corpus(self, query: str, limit: int = 20) -> list[dict]:
+        """Full-text search over the corpus (filings/news/analyses).
+
+        Uses FTS5 MATCH when available (bm25-ranked); falls back to a LIKE
+        scan over corpus_docs otherwise.
+        """
+        query = (query or "").strip()
+        if not query:
+            return []
+        with self._session() as conn:
+            try:
+                rows = conn.execute(
+                    "SELECT d.id, d.symbol, d.kind, d.title, d.body, d.url, "
+                    " d.ts, d.source, bm25(corpus_fts) AS score "
+                    "FROM corpus_fts "
+                    "JOIN corpus_docs d ON d.id = corpus_fts.rowid "
+                    "WHERE corpus_fts MATCH ? "
+                    "ORDER BY score LIMIT ?",
+                    (query, limit)).fetchall()
+                method = "fts5"
+            except sqlite3.OperationalError:
+                like = f"%{query}%"
+                rows = conn.execute(
+                    "SELECT id, symbol, kind, title, body, url, ts, source, 0 AS score "
+                    "FROM corpus_docs WHERE title LIKE ? OR body LIKE ? "
+                    "ORDER BY id DESC LIMIT ?",
+                    (like, like, limit)).fetchall()
+                method = "like"
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["search_method"] = method
+            out.append(d)
+        return out
+
+    def reindex_corpus(self) -> int:
+        """Rebuild the FTS5 index from corpus_docs (idempotent)."""
+        with self._session() as conn:
+            try:
+                conn.execute("DELETE FROM corpus_fts")
+            except sqlite3.OperationalError:
+                return 0
+            docs = conn.execute(
+                "SELECT id, symbol, kind, title, body, url FROM corpus_docs").fetchall()
+            for d in docs:
+                conn.execute(
+                    "INSERT INTO corpus_fts(rowid, symbol, kind, title, body, url) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (d["id"], d["symbol"], d["kind"], d["title"] or "",
+                     d["body"] or "", d["url"] or ""))
+        return len(docs)
 
     # ── calendars ──
     def write_earnings_dates(self, symbol: str, dates: Iterable[Any]) -> None:

@@ -68,7 +68,10 @@ def test_supertrend_direction_agrees_with_price():
     assert st["supertrend_direction"].iloc[-1] == 1.0
     # monotonically falling price → bearish (−1)
     c2 = pd.Series(np.linspace(200, 100, 80), index=idx)
-    df2 = df.copy(); df2["close"] = c2; df2["high"] = c2 * 1.001; df2["low"] = c2 * 0.999
+    df2 = df.copy()
+    df2["close"] = c2
+    df2["high"] = c2 * 1.001
+    df2["low"] = c2 * 0.999
     st2 = _supertrend(df2["high"], df2["low"], df2["close"], 10, 3.0)
     assert st2["supertrend_direction"].iloc[-1] == -1.0
 
@@ -76,8 +79,8 @@ def test_supertrend_direction_agrees_with_price():
 def test_aroon_bounds():
     idx = pd.date_range("2026-01-01", periods=60, freq="B")
     h = pd.Series(np.linspace(100, 200, 60), index=idx)
-    l = pd.Series(np.linspace(90, 190, 60), index=idx)
-    a = _aroon(h, l, 25)
+    lo = pd.Series(np.linspace(90, 190, 60), index=idx)
+    a = _aroon(h, lo, 25)
     assert a["aroon_up"].iloc[-1] == pytest.approx(100.0)  # new high today
     assert a["aroon_osc"].iloc[-1] == pytest.approx(100.0)
 
@@ -85,8 +88,8 @@ def test_aroon_bounds():
 def test_ichimoku_components():
     idx = pd.date_range("2026-01-01", periods=120, freq="B")
     h = pd.Series(np.linspace(100, 150, 120), index=idx)
-    l = pd.Series(np.linspace(90, 140, 120), index=idx)
-    i = _ichimoku(h, l)
+    lo = pd.Series(np.linspace(90, 140, 120), index=idx)
+    i = _ichimoku(h, lo)
     assert {"ichimoku_a", "ichimoku_b", "ichimoku_base", "ichimoku_conversion"} <= set(i)
     # leading spans are shifted (first ~26 values NaN)
     assert i["ichimoku_a"].isna().iloc[:26].all()

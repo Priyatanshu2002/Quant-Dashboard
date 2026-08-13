@@ -80,10 +80,12 @@ def compute_technical_features(ohlcv: pd.DataFrame) -> pd.DataFrame:
     f["atr_14"] = atr.average_true_range()
     f["atr_pct"] = f["atr_14"] / close
     kc = ta.volatility.KeltnerChannel(high, low, close, 20, 2)
-    f["keltner_width"] = (kc.keltner_channel_hband() - kc.keltner_channel_lband()) / kc.keltner_channel_mband()
-    f["keltner_pct_b"] = (close - kc.keltner_channel_lband()) / (kc.keltner_channel_hband() - kc.keltner_channel_lband()).replace(0, np.nan)
-    f["donchian_up"] = ta.volatility.DonchianChannel(high, low, close, 20).donchian_channel_hband()
-    f["donchian_down"] = ta.volatility.DonchianChannel(high, low, close, 20).donchian_channel_lband()
+    kc_band = kc.keltner_channel_hband() - kc.keltner_channel_lband()
+    f["keltner_width"] = kc_band / kc.keltner_channel_mband()
+    f["keltner_pct_b"] = (close - kc.keltner_channel_lband()) / kc_band.replace(0, np.nan)
+    don = ta.volatility.DonchianChannel(high, low, close, 20)
+    f["donchian_up"] = don.donchian_channel_hband()
+    f["donchian_down"] = don.donchian_channel_lband()
     f["realized_vol_20"] = close.pct_change().rolling(20).std() * np.sqrt(252)
     f["realized_vol_10"] = close.pct_change().rolling(10).std() * np.sqrt(252)
     f["range_vol_14"] = (high - low).rolling(14).mean() / close
@@ -175,11 +177,11 @@ def _supertrend(high, low, close, period: int = 10, mult: float = 3.0):
 
 def _ichimoku(high, low):
     """Ichimoku cloud components (manual — ta 0.11's Ichimoku is broken)."""
-    h, l = high, low
-    conv = (h.rolling(9).max() + l.rolling(9).min()) / 2
-    base = (h.rolling(26).max() + l.rolling(26).min()) / 2
+    hh, ll = high, low
+    conv = (hh.rolling(9).max() + ll.rolling(9).min()) / 2
+    base = (hh.rolling(26).max() + ll.rolling(26).min()) / 2
     span_a = ((conv + base) / 2).shift(26)
-    span_b = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    span_b = ((hh.rolling(52).max() + ll.rolling(52).min()) / 2).shift(26)
     return {"ichimoku_a": span_a, "ichimoku_b": span_b,
             "ichimoku_base": base, "ichimoku_conversion": conv}
 
