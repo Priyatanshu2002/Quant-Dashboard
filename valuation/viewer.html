@@ -88,7 +88,7 @@ function render(m) {
     {k:"Weight equity / debt",v:`${(w.w_e*100).toFixed(0)}% / ${(w.w_d*100).toFixed(0)}%`},
     {k:"WACC",v:w.wacc},
   ];
-  const waccHtml=header("WACC")+table(["k","v"],waccRows.map(r=>({k:r.k,v:r.v})),{v:(x)=>pct(x,2)});
+  const waccHtml=header("WACC")+table(["k","v"],waccRows.map(r=>({k:r.k,v:r.v})),{v:(x)=>typeof x==="string"?x:pct(x,2)});
 
   // DCF waterfall
   const proj=d.projections||[];
