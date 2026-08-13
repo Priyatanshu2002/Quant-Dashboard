@@ -176,3 +176,45 @@ def test_quality_flags_detect_cfo_under_ni():
 def test_evaluate_quality_returns_all():
     res = evaluate_quality(_income_rows(), _balance_rows(), _cashflow_rows(), market_cap=50_000)
     assert set(res.keys()) == {"piotroski", "altman_z", "beneish_m", "earnings_quality_flags"}
+
+
+# ── Relative valuation ────────────────────────────────────────────────
+from valuation.relative import compare_to_peers, compute_multiples, mismatch_check
+
+METRICS = {"revenue": 1000, "net_income": 100, "ebitda": 180, "ebit": 150,
+           "fcff": 120, "equity": 400, "total_debt": 200, "cash": 50,
+           "dividends_paid": 20, "eps": 2.5, "growth": 0.10}
+
+
+def test_compute_multiples():
+    m = compute_multiples(METRICS, market_cap=2000, price=50, shares_outstanding=40,
+                          forward_eps=3.0)
+    assert m["enterprise_value"] == pytest.approx(2150)          # 2000+200-50
+    assert m["price_to_earnings"] == pytest.approx(20)
+    assert m["ev_to_ebitda"] == pytest.approx(2150 / 180, rel=1e-3)
+    assert m["ev_to_sales"] == pytest.approx(2150 / 1000, rel=1e-3)
+    assert m["fcf_yield"] == pytest.approx(120 / 2000, rel=1e-3)
+    assert m["trailing_pe"] == pytest.approx(20)
+    assert m["forward_pe"] == pytest.approx(50 / 3, rel=1e-3)
+    assert m["peg_ratio"] == pytest.approx((50 / 3) / 10, rel=1e-3)
+    assert m["dividend_yield"] == pytest.approx((20 / 40) / 50, rel=1e-3)
+
+
+def test_compare_to_peers_flags_expensive():
+    peers = {
+        "P1": {"price_to_earnings": 10, "ev_to_ebitda": 5, "price_to_sales": 1.0},
+        "P2": {"price_to_earnings": 12, "ev_to_ebitda": 6, "price_to_sales": 1.2},
+        "P3": {"price_to_earnings": 11, "ev_to_ebitda": 5.5, "price_to_sales": 1.1},
+    }
+    comp = {"price_to_earnings": 25, "ev_to_ebitda": 12, "price_to_sales": 3.0}
+    res = compare_to_peers(comp, peers)
+    labels = {c["multiple"]: c["label"] for c in res["comparisons"]}
+    assert all(labels[k] == "expensive" for k in labels)
+    assert res["peers"] == 3
+
+
+def test_mismatch_check_flags_value_trap():
+    q = {"piotroski": {"score": 2}, "altman_z": {"zone": "distress"}}
+    m = {"trailing_pe": 8, "price_to_book": 0.8}
+    flags = mismatch_check(q, m)
+    assert any("value trap" in f["signal"].lower() for f in flags)
