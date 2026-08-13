@@ -78,12 +78,18 @@ def ltm_figures(statements: dict[str, list[dict]], periods: int = 4) -> dict:
     capex = _sum("cashflow", "capex")
     da = _sum("cashflow", "depreciation")
     sbc = _sum("cashflow", "stock_based_comp")
+    dnwc = _sum("cashflow", "change_in_working_capital")
 
     pre_tax = (ni + tax) if (ni is not None and tax is not None) else None
     eff_tax = (tax / pre_tax) if (pre_tax and pre_tax > 0) else None
 
-    # Free cash flow to firm (proxy): CFO − Capex (missing after-tax interest).
-    fcff = (cfo - capex) if (cfo is not None and capex is not None) else None
+    # CFA FCFF: NOPAT + D&A − Capex − ΔNWC  (NOPAT = EBIT × (1 − effective tax))
+    nopat = (ebit * (1 - eff_tax)) if (ebit is not None and eff_tax is not None) else None
+    fcff_nopat = (nopat + da - capex - dnwc) \
+        if (nopat is not None and da is not None and capex is not None and dnwc is not None) \
+        else None
+    fcff = fcff_nopat if fcff_nopat is not None \
+        else ((cfo - capex) if (cfo is not None and capex is not None) else None)
 
     return {
         "revenue": revenue, "ebit": ebit, "net_income": ni, "income_tax": tax,

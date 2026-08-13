@@ -9,6 +9,7 @@ import Badge from "../components/Badge";
 import DCFGauge from "../components/DCFGauge";
 import Panel from "../components/Panel";
 import Stat from "../components/Stat";
+import TickerSearch from "../components/TickerSearch";
 import { fmtNum, fmtPct, fmtPctSigned, fmtUSD, pctColor, sentiColor } from "../lib/format";
 
 type Tab = "income" | "balance" | "cashflow";
@@ -21,12 +22,19 @@ const STATEMENT_LABELS: Record<Tab, string> = {
 
 const INCOME_ROWS: [string, string][] = [
   ["total_revenue", "Total Revenue"],
+  ["cost_of_revenue", "Cost of Revenue (COGS)"],
   ["gross_profit", "Gross Profit"],
+  ["research_development", "R&D"],
+  ["selling_general_admin", "SG&A"],
+  ["total_operating_expenses", "Total Operating Expenses"],
+  ["operating_income", "Operating Income (EBIT)"],
   ["ebitda", "EBITDA"],
-  ["operating_income", "Operating Income"],
-  ["net_income", "Net Income"],
-  ["eps_diluted", "Diluted EPS"],
+  ["interest_expense", "Interest Expense"],
+  ["pretax_income", "Pretax Income"],
   ["income_tax", "Income Tax"],
+  ["net_income", "Net Income"],
+  ["eps_basic", "Basic EPS"],
+  ["eps_diluted", "Diluted EPS"],
   ["shares_outstanding", "Diluted Shares"],
 ];
 
@@ -34,23 +42,34 @@ const BALANCE_ROWS: [string, string][] = [
   ["total_assets", "Total Assets"],
   ["current_assets", "Current Assets"],
   ["cash_and_equivalents", "Cash & Equivalents"],
-  ["total_debt", "Total Debt"],
-  ["long_term_debt", "Long-Term Debt"],
+  ["accounts_receivable", "Accounts Receivable"],
+  ["inventory", "Inventory"],
+  ["net_ppe", "PP&E (net)"],
+  ["goodwill", "Goodwill"],
+  ["total_noncurrent_assets", "Non-Current Assets"],
   ["total_liabilities", "Total Liabilities"],
+  ["current_liabilities", "Current Liabilities"],
+  ["accounts_payable", "Accounts Payable"],
+  ["long_term_debt", "Long-Term Debt"],
+  ["total_debt", "Total Debt"],
+  ["total_noncurrent_liabilities", "Non-Current Liabilities"],
   ["shareholders_equity", "Shareholders' Equity"],
   ["retained_earnings", "Retained Earnings"],
-  ["goodwill", "Goodwill"],
-  ["inventory", "Inventory"],
+  ["common_stock", "Common Stock"],
 ];
 
 const CASHFLOW_ROWS: [string, string][] = [
+  ["net_income", "Net Income"],
+  ["depreciation", "Depreciation & Amortization"],
+  ["stock_based_comp", "Stock-Based Compensation"],
+  ["change_in_working_capital", "Change in Working Capital"],
   ["operating_cash_flow", "Operating Cash Flow"],
   ["capex", "Capital Expenditure"],
   ["free_cash_flow", "Free Cash Flow"],
-  ["depreciation", "Depreciation & Amortization"],
-  ["stock_based_comp", "Stock-Based Compensation"],
-  ["financing_cash_flow", "Financing Cash Flow"],
   ["investing_cash_flow", "Investing Cash Flow"],
+  ["financing_cash_flow", "Financing Cash Flow"],
+  ["dividends_paid", "Dividends Paid"],
+  ["share_buyback", "Share Buybacks"],
 ];
 
 const ROW_DEFS: Record<Tab, [string, string][]> = {
@@ -199,9 +218,7 @@ export default function FinancialsPage() {
           {data?.profile?.country && <span className="chip">{data.profile.country}</span>}
         </div>
         <div className="toolbar">
-          <input className="input" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === "Enter" && setSymbol((e.target as HTMLInputElement).value.toUpperCase())}
-            style={{ width: 120 }} placeholder="TICKER" />
+          <TickerSearch to="/financials" placeholder="Search ticker…" width={220} />
           <Link to={`/news/${symbol}`} className="btn ghost">News & Sentiment →</Link>
           <button className="btn" onClick={onRefresh} disabled={refreshing}>
             {refreshing ? "Refreshing…" : "⟳ Refresh Data"}

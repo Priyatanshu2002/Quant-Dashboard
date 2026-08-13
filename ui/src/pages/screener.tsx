@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpDown, ChevronDown, ChevronUp, Search } from "lucide-react";
 import { api, MarketRow } from "../api/client";
+import TickerSearch from "../components/TickerSearch";
 import { fmtUSD } from "../lib/format";
 
 type SortKey = keyof Pick<MarketRow, "symbol" | "asset_class" | "price" | "change_pct" | "volume" | "market_cap" | "composite" | "technical" | "fundamental" | "sentiment" | "macro" | "momentum">;
@@ -76,9 +77,10 @@ export default function ScreenerPage() {
       </div>
 
       <div className="toolbar">
-        <div className="row" style={{ flex: 1, maxWidth: 320 }}>
+        <TickerSearch to="/financials" placeholder="Jump to a ticker…" width={300} />
+        <div className="row" style={{ flex: 1, maxWidth: 260 }}>
           <Search size={15} style={{ color: "var(--text-faint)" }} />
-          <input className="input" style={{ flex: 1 }} placeholder="Search symbol or name…"
+          <input className="input" style={{ flex: 1 }} placeholder="Filter table…"
             value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <select className="input" value={assetClass} onChange={(e) => setAssetClass(e.target.value)}>

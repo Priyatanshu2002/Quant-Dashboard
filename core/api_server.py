@@ -273,6 +273,35 @@ def _route_screener_top(db, qs: dict) -> dict | list:
     return screener_table(run_screener(top_n=top_n, db=db))
 
 
+def _route_screener_universe(db) -> dict:
+    """Cheap symbol+name+sector list for the whole universe (no scoring) —
+    backs the ticker search dropdown. Cached briefly."""
+    import time
+    now = time.time()
+    cached = _UNIVERSE_CACHE.get("payload")
+    if cached and now - _UNIVERSE_CACHE.get("ts", 0) < _UNIVERSE_TTL:
+        return cached
+
+    from screener.asset_universe import get_universe
+    u = get_universe()
+    rows = []
+    for e in u.entries:
+        rows.append({
+            "symbol": e.symbol,
+            "name": (e.name or ""),
+            "asset_class": e.asset_class,
+            "sector": (e.sector or ""),
+        })
+    payload = {"count": len(rows), "rows": rows}
+    _UNIVERSE_CACHE["payload"] = payload
+    _UNIVERSE_CACHE["ts"] = now
+    return payload
+
+
+_UNIVERSE_CACHE: dict = {}
+_UNIVERSE_TTL = 60  # 1 min — new tickers added to the config appear quickly, no restart
+
+
 def _route_monitoring(db) -> dict:
     """System health: storage backend, table coverage, DB size, containerized
     services, and feed status (plan §11 Monitoring)."""
@@ -376,6 +405,9 @@ class AgonistesHandler(BaseHTTPRequestHandler):
 
         if path == "/api/screener/market":
             return _route_screener_market(db)
+
+        if path == "/api/screener/universe":
+            return _route_screener_universe(db)
 
         if path == "/api/backtest/report":
             from backtesting.data_loader import get_ohlcv

@@ -7,8 +7,6 @@ FCF conversion), and persists them to the `financial_statements` store
 """
 from __future__ import annotations
 
-import datetime as dt
-
 import pandas as pd
 import yfinance as yf
 
@@ -21,39 +19,57 @@ log = get_logger(__name__)
 # because yfinance labels shift slightly between API revisions.
 _INCOME_MAP = [
     ("total_revenue", ("Total Revenue", "Operating Revenue", "Revenue")),
+    ("cost_of_revenue", ("Cost Of Revenue", "Cost of Revenue")),
     ("gross_profit", ("Gross Profit",)),
+    ("research_development", ("Research And Development", "Research And Development Expenses")),
+    ("selling_general_admin", ("Selling General And Administration", "Selling General And Administrative")),
+    ("total_operating_expenses", ("Total Operating Expenses",)),
     ("operating_income", ("Operating Income",)),
     ("ebitda", ("EBITDA",)),
+    ("interest_expense", ("Interest Expense", "Interest Expense Non Operating")),
+    ("pretax_income", ("Pretax Income", "Pretax Income Before Non-Recurring Items")),
+    ("income_tax", ("Tax Provision", "Income Tax Expense Benefit")),
     ("net_income", ("Net Income", "Net Income Common Stockholders")),
     ("eps_diluted", ("Diluted EPS",)),
     ("eps_basic", ("Basic EPS",)),
-    ("income_tax", ("Tax Provision", "Income Tax Expense Benefit")),
-    ("interest_expense", ("Interest Expense", "Interest Expense Non Operating")),
     ("shares_outstanding", ("Diluted Average Shares", "Basic Average Shares")),
 ]
 
 _BALANCE_MAP = [
     ("total_assets", ("Total Assets",)),
-    ("total_liabilities", ("Total Liabilities Net Minority Interest", "Total Liabilities")),
-    ("total_debt", ("Total Debt",)),
-    ("cash_and_equivalents", ("Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments")),
-    ("shareholders_equity", ("Stockholders Equity", "Total Equity Gross Minority Interest")),
     ("current_assets", ("Total Current Assets",)),
-    ("current_liabilities", ("Total Current Liabilities",)),
-    ("long_term_debt", ("Long Term Debt",)),
-    ("goodwill", ("Goodwill",)),
+    ("cash_and_equivalents", ("Cash And Cash Equivalents",
+                              "Cash Cash Equivalents And Short Term Investments")),
+    ("accounts_receivable", ("Accounts Receivable",
+                             "Accounts Receivable Trade Net")),
     ("inventory", ("Inventory",)),
+    ("net_ppe", ("Net PPE", "Net Property Plant And Equipment")),
+    ("goodwill", ("Goodwill",)),
+    ("total_noncurrent_assets", ("Total Non Current Assets", "Non Current Assets Total")),
+    ("total_liabilities", ("Total Liabilities Net Minority Interest", "Total Liabilities")),
+    ("current_liabilities", ("Total Current Liabilities",)),
+    ("accounts_payable", ("Accounts Payable", "Payables And Accrued Expenses")),
+    ("long_term_debt", ("Long Term Debt",)),
+    ("total_debt", ("Total Debt",)),
+    ("total_noncurrent_liabilities",
+     ("Total Non Current Liabilities Net Minority Interest", "Non Current Liabilities Total")),
+    ("shareholders_equity", ("Stockholders Equity", "Total Equity Gross Minority Interest")),
     ("retained_earnings", ("Retained Earnings",)),
+    ("common_stock", ("Common Stock Equity", "Total Common Shares Outstanding")),
 ]
 
 _CASHFLOW_MAP = [
+    ("net_income", ("Net Income", "Net Income Common Stockholders")),
     ("operating_cash_flow", ("Operating Cash Flow",)),
-    ("capex", ("Capital Expenditure",)),
-    ("free_cash_flow", ("Free Cash Flow",)),
     ("depreciation", ("Depreciation Amortization Depletion", "Depreciation And Amortization")),
     ("stock_based_comp", ("Stock Based Compensation",)),
-    ("financing_cash_flow", ("Financing Cash Flow",)),
-    ("investing_cash_flow", ("Investing Cash Flow",)),
+    ("change_in_working_capital", ("Change In Working Capital", "Changes In Working Capital")),
+    ("capex", ("Capital Expenditure", "Investments In Property Plant And Equipment")),
+    ("free_cash_flow", ("Free Cash Flow",)),
+    ("investing_cash_flow", ("Investing Cash Flow", "Cash Flow From Continuing Investing Activities")),
+    ("financing_cash_flow", ("Financing Cash Flow", "Cash Flow From Continuing Financing Activities")),
+    ("dividends_paid", ("Common Stock Dividend Paid", "Dividends Paid")),
+    ("share_buyback", ("Repurchase Of Capital Stock", "Common Stock Repurchased")),
 ]
 
 STATEMENTS = {"income": _INCOME_MAP, "balance": _BALANCE_MAP, "cashflow": _CASHFLOW_MAP}
@@ -123,7 +139,7 @@ def derive_ratios(income: list[dict], balance: list[dict],
         prior = merged[periods[i - 4]] if i >= 4 else None
         rev, rev_prior = cur.get("total_revenue"), prior.get("total_revenue") if prior else None
         eps, eps_prior = cur.get("eps_diluted"), prior.get("eps_diluted") if prior else None
-        ocf, capex = cur.get("operating_cash_flow"), cur.get("capex")
+        ocf = cur.get("operating_cash_flow")
 
         row: dict = {"period": p, "period_type": "QUARTERLY"}
         row["revenue_yoy_growth"] = (rev / rev_prior - 1) if rev and rev_prior else None

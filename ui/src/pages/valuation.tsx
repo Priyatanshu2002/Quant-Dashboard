@@ -7,6 +7,7 @@ import {
 import { api, type ValuationDTO } from "../api/client";
 import Panel from "../components/Panel";
 import Stat from "../components/Stat";
+import TickerSearch from "../components/TickerSearch";
 import { fmtNum, fmtPct, fmtPctSigned, fmtUSD, pctColor } from "../lib/format";
 
 const chartTooltip = {
@@ -119,11 +120,7 @@ export default function ValuationPage() {
           {data?.as_of && <span className="chip">As of {data.as_of}</span>}
         </div>
         <div className="toolbar">
-          <input className="input" value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === "Enter" && setSymbol((e.target as HTMLInputElement).value.toUpperCase())}
-            style={{ width: 120 }} placeholder="TICKER" />
-          <button className="btn" onClick={() => setSymbol((s) => s)}>Load</button>
+          <TickerSearch to="/valuation" placeholder="Search ticker…" width={220} />
         </div>
       </div>
 

@@ -61,10 +61,23 @@ class AssetUniverse:
 
 
 _universe: AssetUniverse | None = None
+_universe_mtime: float | None = None
 
 
 def get_universe() -> AssetUniverse:
-    global _universe
-    if _universe is None:
+    """Return the universe, reloading if the config file changed on disk.
+
+    This makes adding/removing tickers in screener_config.yaml take effect
+    WITHOUT a server restart — the next call picks up the change. (The market
+    screener payload is separately TTL-cached for 15 min, so edits appear
+    within that window, not on the next request.)
+    """
+    global _universe, _universe_mtime
+    try:
+        mtime = CONFIG_PATH.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _universe is None or (mtime is not None and mtime != _universe_mtime):
         _universe = AssetUniverse()
+        _universe_mtime = mtime
     return _universe
