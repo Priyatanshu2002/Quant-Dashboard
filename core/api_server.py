@@ -190,7 +190,17 @@ def _route_refresh_sentiment(db, qs: dict) -> dict:
 
 def _route_screener_market(db) -> dict:
     """Full market screener — every scoreable instrument with live price data,
-    sorted by composite, plus per-signal components (TradingView-style table)."""
+    sorted by composite, plus per-signal components (TradingView-style table).
+
+    Scored result is cached (TTL) so the screener page loads instantly after the
+    first call instead of re-scoring ~112 instruments on every request.
+    """
+    import time
+    now = time.time()
+    cached = _MARKET_CACHE.get("payload")
+    if cached and now - _MARKET_CACHE.get("ts", 0) < _MARKET_TTL:
+        return cached
+
     from screener.pipeline import score_universe
 
     signals = score_universe(db)
@@ -230,7 +240,14 @@ def _route_screener_market(db) -> dict:
             "momentum": round(b["momentum"], 1),
         })
     rows.sort(key=lambda r: -(r["composite"] or 0))
-    return {"count": len(rows), "rows": rows}
+    payload = {"count": len(rows), "rows": rows}
+    _MARKET_CACHE["payload"] = payload
+    _MARKET_CACHE["ts"] = now
+    return payload
+
+
+_MARKET_CACHE: dict = {}
+_MARKET_TTL = 300  # seconds
 
 
 def _route_screener_top(db, qs: dict) -> dict | list:

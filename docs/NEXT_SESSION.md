@@ -78,11 +78,20 @@ Root cause of the plan/UI mismatch: `styles.css` (the design system) was written
 - All pages migrated: Screener, Backtest (KPI tiles + **real** equity/drawdown curve from `/api/backtest/equity` + regime bars), Portfolio, Debate (side-by-side Bull/Bear), Valuation.
 - **NEW Monitoring page** (plan §11.1) at `/monitoring`: data-feed coverage (11 sources, live row counts), infrastructure status, storage/DB info. Backed by new `GET /api/monitoring` in `core/api_server.py` (uses real tables `market_data` / `llm_analyses` / `macro_snapshots`).
 
+**TradingView-style market screener + expanded universe (committed `34f38f9`, `0200589`):**
+
+The screener no longer requires typing a ticker — the whole market is populated and in front of the user:
+- `GET /api/screener/market`: scores the full universe and joins live OHLCV (price, change %, volume), market cap and profile (name, sector); returns all rows sorted by composite, plus per-signal components.
+- Screener page: full market table — search (symbol/name), asset-class filter, sortable columns, green/red change coloring, composite badges. Click any row → `/financials/:symbol` drill-in (added `:symbol` routes for `/financials` and `/valuation`; Valuation reads the route param).
+- Universe expanded in `screener/screener_config.yaml` from 33 → **~116 instruments**: 10 crypto, ~67 US large-caps across all sectors, 10 Indian equities, 19 sector/index ETFs, 3 bond yields, 7 FX.
+- `scripts/backfill_universe.py`: 5y price backfill (equities via yfinance, crypto via Binance) + labeled feature-store build for the full universe (idempotent). **Run it after any universe change**, then restart the server (it caches `get_universe()` at startup).
+
 **To (re)start the API server (serves both API and dashboard on :8000):**
   ```bash
   python main.py serve --port 8000
   ```
   No separate UI server needed — the dashboard is served by the same process.
+  NOTE: scoring ~112 instruments takes ~15s per request. Add server-side caching of `_route_screener_market` if this feels slow.
 
 ---
 
