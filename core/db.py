@@ -199,7 +199,9 @@ CREATE TABLE IF NOT EXISTS macro_snapshots (
     cpi_all_urban REAL, unemployment_rate REAL, core_cpi REAL, ppi_final REAL,
     pce_all REAL, nonfarm_payrolls REAL, ism_pmi REAL, m2_supply REAL,
     t10y2y REAL, t10y_breakeven_ie REAL, hy_credit_spread REAL,
-    ig_credit_spread REAL, wti_price REAL, brent_price REAL
+    ig_credit_spread REAL, wti_price REAL, brent_price REAL,
+    t5y_breakeven_ie REAL, job_openings REAL, retail_sales REAL,
+    housing_starts REAL
 );
 
 CREATE TABLE IF NOT EXISTS earnings_calendar (
@@ -341,6 +343,8 @@ class SQLiteStorage(Storage):
                 ("t10y_breakeven_ie", "REAL"), ("hy_credit_spread", "REAL"),
                 ("ig_credit_spread", "REAL"), ("wti_price", "REAL"),
                 ("brent_price", "REAL"),
+                ("t5y_breakeven_ie", "REAL"), ("job_openings", "REAL"),
+                ("retail_sales", "REAL"), ("housing_starts", "REAL"),
             ],
             "market_data": [("dollar_volume", "REAL")],
             "company_profiles": [("meta", "TEXT")],

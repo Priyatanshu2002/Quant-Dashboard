@@ -18,6 +18,10 @@ API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 SERIES = {
     "CUUR0000SA0": "cpi_all_urban",          # CPI-U, all items
     "LNS14000000": "unemployment_rate",      # U-3 unemployment
+    "PPIFID": "ppi_final",                   # PPI final demand (BLS identifier)
+    "CES0500000003": "avg_hourly_earnings",  # average hourly earnings (wages)
+    "JTSJOL": "job_openings",                # job openings (mirrors FRED JTSJOL)
+    "LNS12000000": "employment_level",       # total nonfarm employment
 }
 
 

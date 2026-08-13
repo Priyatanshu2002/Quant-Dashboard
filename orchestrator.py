@@ -185,11 +185,13 @@ def job_ingest_macro() -> None:
     from data_ingestion.macro_feeds.treasury_fetcher import (
         fetch_treasury_curve, fetch_vix_stooq)
     from data_ingestion.macro_feeds.yfinance_macro import fetch_yfinance_macro
+    from data_ingestion.macro_feeds.fred_fetcher import fetch_fred_latest
     from data_ingestion.onchain_feeds.exchange_flow_fetcher import fetch_crypto_global
 
     db = get_storage()
     n = 0
-    for fn in (fetch_treasury_curve, fetch_yfinance_macro, fetch_crypto_global):
+    for fn in (fetch_treasury_curve, fetch_yfinance_macro, fetch_fred_latest,
+               fetch_crypto_global):
         try:
             if fn(storage=db):
                 n += 1
