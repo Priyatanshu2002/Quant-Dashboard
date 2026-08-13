@@ -85,6 +85,11 @@ class Storage:
                     interval: str = "1d") -> pd.DataFrame: ...
     def symbols(self) -> list[str]: ...
 
+    # ── corporate actions ──
+    def write_corporate_actions(self, symbol: str,
+                                actions: Iterable[dict]) -> None: ...
+    def query_corporate_actions(self, symbol: str) -> list[dict]: ...
+
     # ── feature store ──
     def write_feature_vectors(self, df: pd.DataFrame, symbol: str,
                               asset_class: str, timeframe: str) -> None: ...
@@ -207,6 +212,12 @@ CREATE TABLE IF NOT EXISTS earnings_results (
 CREATE TABLE IF NOT EXISTS expiry_calendar (
     symbol TEXT NOT NULL, expiry_date TEXT NOT NULL,
     PRIMARY KEY (symbol, expiry_date)
+);
+
+CREATE TABLE IF NOT EXISTS corporate_actions (
+    symbol TEXT NOT NULL, action_date TEXT NOT NULL,
+    action_type TEXT NOT NULL, amount REAL, raw TEXT,
+    PRIMARY KEY (symbol, action_date, action_type)
 );
 
 CREATE TABLE IF NOT EXISTS trade_log (
@@ -347,14 +358,14 @@ class SQLiteStorage(Storage):
             "symbol": symbol, "asset_class": asset_class,
             "source": source, "interval": interval,
         })
-        for c in ("open", "high", "low", "close", "volume"):
+        for c in ("open", "high", "low", "close", "volume", "dollar_volume"):
             out[c] = df[c].values if c in df.columns else None
         with self._session() as conn:
             out.to_sql("market_data", conn, if_exists="append", index=False)
 
     def query_ohlcv(self, symbol: str, start: Any = None, end: Any = None,
                     interval: str = "1d") -> pd.DataFrame:
-        sql = "SELECT time, open, high, low, close, volume FROM market_data WHERE symbol=? AND interval=?"
+        sql = "SELECT time, open, high, low, close, volume, dollar_volume FROM market_data WHERE symbol=? AND interval=?"
         args: list[Any] = [symbol, interval]
         if start is not None:
             sql += " AND time >= ?"
@@ -376,6 +387,36 @@ class SQLiteStorage(Storage):
         with self._session() as conn:
             rows = conn.execute("SELECT DISTINCT symbol FROM market_data").fetchall()
         return [r["symbol"] for r in rows]
+
+    # ── corporate actions ──
+    def write_corporate_actions(self, symbol: str,
+                                actions: Iterable[dict]) -> None:
+        symbol = symbol.upper()
+        with self._session() as conn:
+            for a in actions:
+                conn.execute(
+                    "INSERT OR REPLACE INTO corporate_actions "
+                    "(symbol, action_date, action_type, amount, raw) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (symbol, str(a["action_date"]), str(a["action_type"]),
+                     a.get("amount"), json.dumps(a.get("raw") if a.get("raw") else a,
+                                                 default=str)))
+
+    def query_corporate_actions(self, symbol: str) -> list[dict]:
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM corporate_actions WHERE symbol=? ORDER BY action_date",
+                (symbol.upper(),)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d.get("raw"):
+                try:
+                    d["raw"] = json.loads(d["raw"])
+                except (TypeError, json.JSONDecodeError):
+                    pass
+            out.append(d)
+        return out
 
     # ── feature store ──
     def write_feature_vectors(self, df: pd.DataFrame, symbol: str,

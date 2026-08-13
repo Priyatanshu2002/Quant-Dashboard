@@ -21,12 +21,60 @@ log = get_logger(__name__)
 
 
 def asset_class_for(symbol: str) -> str:
-    s = symbol.upper()
-    if s.startswith("^") or s in ("SPY", "QQQ", "DIA", "IWM", "TLT", "GLD", "SLV", "EEM", "VOO", "VTI"):
-        return "ETF" if not s.startswith("^") else "ETF" if False else "EQUITY_US"
-    if s.endswith(".NS") or s.endswith(".BO"):
-        return "EQUITY_IN"
+    """Map a yfinance symbol to an asset class.
+
+    Rules (deterministic, tested):
+      * ``^PREFIX`` (e.g. ^GSPC, ^NSEI, ^VIX) -> INDEX
+      * known ETF tickers -> ETF
+      * ``.NS`` / ``.BO`` suffix (Indian equities) -> EQUITY_IN
+      * anything else on the equity path -> EQUITY_US
+    """
+    s = symbol.upper().strip()
+    if s.startswith("^"):
+        return "INDEX"
+    if s in _KNOWN_ETFS or s.endswith((".NS", ".BO")):
+        return "EQUITY_IN" if s.endswith((".NS", ".BO")) else "ETF"
     return "EQUITY_US"
+
+
+_KNOWN_ETFS = {"SPY", "QQQ", "DIA", "IWM", "TLT", "GLD", "SLV", "EEM", "VOO", "VTI"}
+
+
+def fetch_corporate_actions(ticker: str) -> list[dict]:
+    """Fetch dividend/split/action history from yfinance into flat rows."""
+    try:
+        t = yf.Ticker(ticker)
+    except Exception as e:  # noqa: BLE001
+        log.debug("corporate actions init failed for %s: %s", ticker, e)
+        return []
+    out: list[dict] = []
+    try:
+        divs = t.dividends
+        if divs is not None and not divs.empty:
+            for dt_idx, amt in divs.items():
+                out.append({"action_date": pd.Timestamp(dt_idx).date().isoformat(),
+                            "action_type": "DIVIDEND", "amount": float(amt)})
+    except Exception as e:  # noqa: BLE001
+        log.debug("dividends failed for %s: %s", ticker, e)
+    try:
+        splits = t.splits
+        if splits is not None and not splits.empty:
+            for dt_idx, ratio in splits.items():
+                out.append({"action_date": pd.Timestamp(dt_idx).date().isoformat(),
+                            "action_type": "SPLIT", "amount": float(ratio)})
+    except Exception as e:  # noqa: BLE001
+        log.debug("splits failed for %s: %s", ticker, e)
+    try:
+        acts = t.actions
+        if acts is not None and not acts.empty and "Dividends" in acts.columns:
+            for dt_idx, row in acts.iterrows():
+                div = row.get("Dividends")
+                if pd.notna(div) and float(div) != 0:
+                    out.append({"action_date": pd.Timestamp(dt_idx).date().isoformat(),
+                                "action_type": "DIVIDEND", "amount": float(div)})
+    except Exception as e:  # noqa: BLE001
+        log.debug("actions failed for %s: %s", ticker, e)
+    return out
 
 
 def backfill_equities(symbols: Iterable[str], period: str = "5y",
@@ -48,11 +96,20 @@ def backfill_equities(symbols: Iterable[str], period: str = "5y",
                     "Close": "close", "Volume": "volume"})
                 if df.empty:
                     continue
-                df = df[["open", "high", "low", "close", "volume"]]
+                df = df[[col for col in ("open", "high", "low", "close", "volume")
+                         if col in df.columns]]
+                df["dollar_volume"] = df["close"] * df["volume"]
                 df.index = pd.to_datetime(df.index)
                 storage.write_ohlcv(df, symbol=t.upper(),
                                     asset_class=asset_class_for(t),
                                     source="YAHOO", interval=interval)
+                # Corporate actions (dividends / splits) — idempotent upsert.
+                try:
+                    actions = fetch_corporate_actions(t)
+                    if actions:
+                        storage.write_corporate_actions(t.upper(), actions)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("corporate actions persist failed for %s: %s", t, e)
                 results[t.upper()] = df
                 log.info("Backfilled %d bars for %s", len(df), t)
             except Exception as e:  # noqa: BLE001
