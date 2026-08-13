@@ -37,16 +37,36 @@ def fetch_gdelt_events(symbol: str, maxrecords: int = 25,
         title = art.get("title", "")
         score = score_text(title)
         url = art.get("url", "")
+        # GDELT artlist provides tone + themes + domain + source timestamp.
+        themes = art.get("themes") or []
+        tone = _parse_tone(art.get("tone"))
         storage.write_sentiment_event(
             symbol=symbol.upper(), source="GDELT", score=score,
-            headline=title, url=url, source_weight=SOURCE_WEIGHT)
+            headline=title, url=url, source_weight=SOURCE_WEIGHT,
+            full_text=art.get("description", ""),
+            created_at=art.get("seendate", ""),
+            tone=tone,
+            themes=",".join(themes) if themes else None,
+            raw={"domain": art.get("domain"), "language": art.get("language"),
+                 "seendate": art.get("seendate"), "themes": themes})
         events.append({"symbol": symbol.upper(), "source": "GDELT",
-                       "score": score, "headline": title, "url": url})
+                       "score": score, "headline": title, "url": url,
+                       "themes": themes, "tone": tone})
     log.info("GDELT: %d events for %s", len(events), symbol)
     import asyncio
     for e in events:
         asyncio.run(bus.publish(EVENT_SENTIMENT, e))
     return events
+
+
+def _parse_tone(tone) -> float | None:
+    """GDELT 'tone' field is 'positive,negative,neutral,avg' — take avg."""
+    if not tone:
+        return None
+    try:
+        return float(str(tone).split(",")[3])
+    except (IndexError, TypeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":

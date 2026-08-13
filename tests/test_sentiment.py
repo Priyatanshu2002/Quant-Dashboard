@@ -89,3 +89,55 @@ def test_sentiment_features_weighted_and_momentum(db):
 
 def test_sentiment_features_empty():
     assert compute_sentiment_features("NOPE")["sentiment_volume"] == 0
+
+
+# ── C5 depth: full text, timestamps, reddit engagement, gdelt themes/tone ──
+def test_yahoo_news_captures_fulltext_and_timestamp(db):
+    payload = {"news": [{
+        "title": "Apple beats", "link": "http://x/1",
+        "description": "full article body here",
+        "providerPublishTime": 1752400000,
+    }]}
+    with mock.patch("data_ingestion.sentiment_feeds.news_aggregator.requests.get",
+                    return_value=_mock_get(payload)):
+        fetch_yahoo_news("AAPL", db)
+    stored = db.query_sentiment_events("AAPL", hours=24)
+    assert stored[0]["full_text"] == "full article body here"
+    assert stored[0]["created_at"].startswith("2025")  # epoch → ISO
+
+
+def test_reddit_captures_engagement(db):
+    from data_ingestion.sentiment_feeds.reddit_fetcher import fetch_reddit_events
+    payload = {"data": {"children": [
+        {"data": {"title": "strong bullish thesis", "selftext": "detailed DD here",
+                  "url": "http://r/1", "score": 150, "num_comments": 42,
+                  "subreddit": "stocks", "created_utc": 1752400000}},
+    ]}}
+    with mock.patch("data_ingestion.sentiment_feeds.reddit_fetcher.requests.get",
+                    return_value=_mock_get(payload)):
+        fetch_reddit_events("AAPL", storage=db)
+    stored = db.query_sentiment_events("AAPL", hours=24)
+    assert stored[0]["upvotes"] == 150
+    assert stored[0]["num_comments"] == 42
+    assert stored[0]["full_text"] == "detailed DD here"
+    assert stored[0]["raw"]["subreddit"] == "stocks"
+
+
+def test_gdelt_captures_themes_and_tone(db):
+    from data_ingestion.sentiment_feeds.gdelt_fetcher import (
+        fetch_gdelt_events, _parse_tone)
+    assert _parse_tone("1.2,-0.4,0.5,8.2") == pytest.approx(8.2)
+    assert _parse_tone(None) is None
+    payload = {"articles": [{
+        "title": "Apple surges on earnings", "url": "http://g/1",
+        "themes": ["TAX_FNCACT", "ECON_GROWTH"],
+        "tone": "2.1,-0.3,0.9,15.4",
+        "seendate": "20260814000000",
+    }]}
+    with mock.patch("data_ingestion.sentiment_feeds.gdelt_fetcher.requests.get",
+                    return_value=_mock_get(payload)):
+        fetch_gdelt_events("AAPL", storage=db)
+    stored = db.query_sentiment_events("AAPL", hours=24)
+    assert stored[0]["tone"] == pytest.approx(15.4)
+    assert stored[0]["themes"] == "TAX_FNCACT,ECON_GROWTH"
+    assert stored[0]["created_at"] == "20260814000000"

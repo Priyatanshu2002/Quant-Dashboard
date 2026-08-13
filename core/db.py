@@ -181,7 +181,9 @@ CREATE INDEX IF NOT EXISTS idx_fs_sym ON fundamental_snapshots (symbol, time);
 
 CREATE TABLE IF NOT EXISTS sentiment_events (
     ts TEXT NOT NULL, symbol TEXT NOT NULL, source TEXT NOT NULL,
-    score REAL, source_weight REAL, headline TEXT, url TEXT
+    score REAL, source_weight REAL, headline TEXT, url TEXT,
+    full_text TEXT, created_at TEXT, upvotes REAL, num_comments REAL,
+    themes TEXT, tone REAL, raw TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_se_sym ON sentiment_events (symbol, ts);
 
@@ -321,20 +323,32 @@ class SQLiteStorage(Storage):
     def _migrate(self, conn: sqlite3.Connection) -> None:
         """Idempotently add columns introduced after a DB was first created
         (so an existing data/agonistes_dev.db gains new macro/price fields)."""
+        # {table: [(column, sql_type), ...]}
         _ADD_COLUMNS = {
             "macro_snapshots": [
-                "us_1m_yield", "us_2m_yield", "us_3m_yield", "us_6m_yield",
-                "us_1y_yield", "us_3y_yield", "us_5y_yield", "us_7y_yield",
-                "us_20y_yield", "us_30y_yield",
-                "us_5y_real_yield", "us_7y_real_yield", "us_10y_real_yield",
-                "us_20y_real_yield", "us_30y_real_yield", "breakeven_inflation",
-                "cpi_all_urban", "unemployment_rate", "core_cpi", "ppi_final",
-                "pce_all", "nonfarm_payrolls", "ism_pmi", "m2_supply",
-                "t10y2y", "t10y_breakeven_ie", "hy_credit_spread",
-                "ig_credit_spread", "wti_price", "brent_price",
+                ("us_1m_yield", "REAL"), ("us_2m_yield", "REAL"),
+                ("us_3m_yield", "REAL"), ("us_6m_yield", "REAL"),
+                ("us_1y_yield", "REAL"), ("us_3y_yield", "REAL"),
+                ("us_5y_yield", "REAL"), ("us_7y_yield", "REAL"),
+                ("us_20y_yield", "REAL"), ("us_30y_yield", "REAL"),
+                ("us_5y_real_yield", "REAL"), ("us_7y_real_yield", "REAL"),
+                ("us_10y_real_yield", "REAL"), ("us_20y_real_yield", "REAL"),
+                ("us_30y_real_yield", "REAL"), ("breakeven_inflation", "REAL"),
+                ("cpi_all_urban", "REAL"), ("unemployment_rate", "REAL"),
+                ("core_cpi", "REAL"), ("ppi_final", "REAL"), ("pce_all", "REAL"),
+                ("nonfarm_payrolls", "REAL"), ("ism_pmi", "REAL"),
+                ("m2_supply", "REAL"), ("t10y2y", "REAL"),
+                ("t10y_breakeven_ie", "REAL"), ("hy_credit_spread", "REAL"),
+                ("ig_credit_spread", "REAL"), ("wti_price", "REAL"),
+                ("brent_price", "REAL"),
             ],
-            "market_data": ["dollar_volume"],
-            "company_profiles": ["meta"],
+            "market_data": [("dollar_volume", "REAL")],
+            "company_profiles": [("meta", "TEXT")],
+            "sentiment_events": [
+                ("full_text", "TEXT"), ("created_at", "TEXT"),
+                ("upvotes", "REAL"), ("num_comments", "REAL"),
+                ("themes", "TEXT"), ("tone", "REAL"), ("raw", "TEXT"),
+            ],
         }
         for table, cols in _ADD_COLUMNS.items():
             try:
@@ -342,10 +356,10 @@ class SQLiteStorage(Storage):
                             conn.execute(f"PRAGMA table_info({table})").fetchall()}
             except sqlite3.OperationalError:
                 continue
-            for c in cols:
+            for c, ctype in cols:
                 if c not in existing:
                     try:
-                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {c} REAL")
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {c} {ctype}")
                     except sqlite3.OperationalError:
                         pass  # already added concurrently
 
@@ -506,13 +520,23 @@ class SQLiteStorage(Storage):
     def write_sentiment_event(self, symbol: str, source: str, score: float,
                               headline: str = "", url: str = "",
                               source_weight: float = 1.0,
-                              ts: datetime | None = None) -> None:
+                              ts: datetime | None = None,
+                              full_text: str = "", created_at: str = "",
+                              upvotes: float | None = None,
+                              num_comments: float | None = None,
+                              themes: str | None = None,
+                              tone: float | None = None,
+                              raw: dict | None = None) -> None:
         with self._session() as conn:
             conn.execute(
-                "INSERT INTO sentiment_events (ts, symbol, source, score, source_weight, headline, url) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO sentiment_events "
+                "(ts, symbol, source, score, source_weight, headline, url, "
+                " full_text, created_at, upvotes, num_comments, themes, tone, raw) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (_as_naive_utc(ts or _utc_now()).isoformat(sep=" "), symbol, source,
-                 float(score), float(source_weight), headline, url))
+                 float(score), float(source_weight), headline, url,
+                 full_text, created_at, upvotes, num_comments, themes, tone,
+                 json.dumps(raw, default=str) if raw else None))
 
     def query_sentiment_events(self, symbol: str, hours: int = 24) -> list[dict]:
         cutoff = _as_naive_utc(_utc_now() - timedelta(hours=hours)).isoformat(sep=" ")
@@ -520,7 +544,16 @@ class SQLiteStorage(Storage):
             rows = conn.execute(
                 "SELECT * FROM sentiment_events WHERE symbol=? AND ts >= ? ORDER BY ts",
                 (symbol, cutoff)).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d.get("raw"):
+                try:
+                    d["raw"] = json.loads(d["raw"])
+                except (TypeError, json.JSONDecodeError):
+                    pass
+            out.append(d)
+        return out
 
     def query_sentiment_avg(self, symbol: str, hours: int = 72) -> float:
         evs = self.query_sentiment_events(symbol, hours=hours)

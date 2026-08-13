@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 
+import pandas as pd
 import requests
 
 from core.db import Storage, get_storage
@@ -19,6 +20,22 @@ log = get_logger(__name__)
 SUBREDDITS = ["stocks", "investing", "wallstreetbets", "CryptoCurrency"]
 SOURCE_WEIGHT = 0.6
 HEADERS = {"User-Agent": "agonistes-research/0.1 (paper-trading research)"}
+
+
+def _safe_num(v) -> float | None:
+    try:
+        return None if v is None else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_ts(epoch) -> str:
+    if epoch in (None, ""):
+        return ""
+    try:
+        return pd.Timestamp(float(epoch), unit="s", tz="UTC").isoformat(sep=" ")
+    except (TypeError, ValueError):
+        return ""
 
 
 def fetch_reddit_events(symbol: str, limit_per_sub: int = 10,
@@ -40,7 +57,14 @@ def fetch_reddit_events(symbol: str, limit_per_sub: int = 10,
                 storage.write_sentiment_event(
                     symbol=symbol.upper(), source="REDDIT", score=score,
                     headline=post.get("title", ""), url=post.get("url", ""),
-                    source_weight=SOURCE_WEIGHT)
+                    source_weight=SOURCE_WEIGHT,
+                    full_text=post.get("selftext", ""),
+                    created_at=_fmt_ts(post.get("created_utc")),
+                    upvotes=_safe_num(post.get("score")),
+                    num_comments=_safe_num(post.get("num_comments")),
+                    raw={"subreddit": post.get("subreddit"),
+                         "permalink": post.get("permalink"),
+                         "author": post.get("author")})
                 events.append({"symbol": symbol.upper(), "source": "REDDIT",
                                "score": score, "headline": post.get("title", "")})
             time.sleep(1.2)

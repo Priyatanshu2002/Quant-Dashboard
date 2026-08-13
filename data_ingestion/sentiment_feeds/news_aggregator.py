@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 import xml.etree.ElementTree as ET
 
+import pandas as pd
 import requests
 
 from core.db import Storage, get_storage
@@ -37,12 +38,15 @@ SOURCE_WEIGHTS = {"NEWS": 0.9, "GOOGLE": 0.8, "YAHOO_RSS": 0.8, "STOCKTWITS": 0.
 
 
 def _persist(storage: Storage, symbol: str, source: str, score: float,
-             headline: str, url: str = "") -> dict:
+             headline: str, url: str = "", full_text: str = "",
+             created_at: str = "") -> dict:
     storage.write_sentiment_event(
         symbol=symbol.upper(), source=source, score=score,
-        headline=headline, url=url, source_weight=SOURCE_WEIGHTS.get(source, 0.8))
+        headline=headline, url=url, source_weight=SOURCE_WEIGHTS.get(source, 0.8),
+        full_text=full_text, created_at=created_at)
     return {"symbol": symbol.upper(), "source": source, "score": score,
-            "headline": headline, "url": url}
+            "headline": headline, "url": url, "full_text": full_text,
+            "created_at": created_at}
 
 
 def fetch_yahoo_news(symbol: str, storage: Storage, news_count: int = 10) -> list[dict]:
@@ -54,8 +58,23 @@ def fetch_yahoo_news(symbol: str, storage: Storage, news_count: int = 10) -> lis
         title = item.get("title", "")
         score = score_text(title)
         events.append(_persist(storage, symbol, "NEWS", score, title,
-                               item.get("link", "")))
+                               item.get("link", ""),
+                               full_text=item.get("description", ""),
+                               created_at=_fmt_ts(item.get("providerPublishTime"))))
     return events
+
+
+def _fmt_ts(epoch) -> str:
+    """Epoch seconds/millis → ISO 8601 UTC string, else ''."""
+    if epoch in (None, ""):
+        return ""
+    try:
+        e = float(epoch)
+    except (TypeError, ValueError):
+        return ""
+    if e > 1e11:  # milliseconds
+        e = e / 1000
+    return pd.Timestamp(e, unit="s", tz="UTC").isoformat(sep=" ")
 
 
 def fetch_google_news(symbol: str, storage: Storage, days: int = 1) -> list[dict]:
@@ -71,8 +90,11 @@ def fetch_google_news(symbol: str, storage: Storage, days: int = 1) -> list[dict
     for item in root.findall("n:entry", ns):
         title = item.findtext("n:title", default="", namespaces=ns)
         link = item.find("n:link", ns)
+        summary = item.findtext("n:summary", default="", namespaces=ns)
+        published = item.findtext("n:published", default="", namespaces=ns)
         events.append(_persist(storage, symbol, "GOOGLE", score_text(title),
-                               title, link.get("href") if link is not None else ""))
+                               title, link.get("href") if link is not None else "",
+                               full_text=summary, created_at=published))
     return events
 
 
@@ -86,8 +108,10 @@ def fetch_yahoo_rss(symbol: str, storage: Storage) -> list[dict]:
     for item in root.findall(".//item"):
         title = item.findtext("title", default="")
         link = item.findtext("link", default="")
+        desc = item.findtext("description", default="")
+        pub = item.findtext("pubDate", default="")
         events.append(_persist(storage, symbol, "YAHOO_RSS", score_text(title),
-                               title, link))
+                               title, link, full_text=desc, created_at=pub))
     return events
 
 
@@ -107,7 +131,9 @@ def fetch_stocktwits(symbol: str, storage: Storage, limit: int = 20) -> list[dic
         else:
             score = score_text(body)
         events.append(_persist(storage, symbol, "STOCKTWITS", score, body,
-                               f"https://stocktwits.com/symbol/{symbol.upper()}"))
+                               f"https://stocktwits.com/symbol/{symbol.upper()}",
+                               full_text=body,
+                               created_at=_fmt_ts(msg.get("created_at"))))
     return events
 
 
