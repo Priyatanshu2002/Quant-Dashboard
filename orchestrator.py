@@ -150,12 +150,97 @@ def job_ingest_fundamentals() -> None:
 
 @_retry(attempts=3, backoff=30.0)
 def job_ingest_news() -> None:
-    """Pull and score news sentiment for top candidates."""
+    """News sentiment across the universe (Yahoo/Google/RSS, GDELT, Reddit) + LLM verdicts."""
     log.info("[DAILY] Ingesting news / sentiment …")
-    # Sentiment sweep runs against the screener's top candidates
-    from scripts.sentiment_sweep import run_sentiment_sweep
-    run_sentiment_sweep()
-    log.info("[DAILY] Sentiment sweep done")
+    from core.db import get_storage
+    from scripts.sentiment_sweep import UNIVERSE
+    from data_ingestion.sentiment_feeds.news_aggregator import fetch_news_events
+    from data_ingestion.sentiment_feeds.gdelt_fetcher import fetch_gdelt_events
+    from data_ingestion.sentiment_feeds.reddit_fetcher import fetch_reddit_events
+    from data_ingestion.sentiment_feeds.llm_analyst import analyze_news_sentiment
+
+    db = get_storage()
+    total = 0
+    for sym in UNIVERSE:
+        for fn in (fetch_news_events, fetch_gdelt_events, fetch_reddit_events):
+            try:
+                total += len(fn(sym, storage=db))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[DAILY] sentiment feed %s %s failed: %s",
+                            getattr(fn, "__name__", "feed"), sym, exc)
+    # LLM analyst verdicts for the top candidates (cost-controlled)
+    try:
+        for sym in UNIVERSE[:10]:
+            analyze_news_sentiment(sym, storage=db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[DAILY] LLM analyst sweep failed: %s", exc)
+    log.info("[DAILY] Sentiment sweep done — %d events for %d symbols", total, len(UNIVERSE))
+
+
+@_retry(attempts=2, backoff=60.0)
+def job_ingest_macro() -> None:
+    """Ingest macro + on-chain-global indicators (treasury/VIX/yfinance/crypto — all key-free)."""
+    log.info("[DAILY] Ingesting macro (treasury/VIX/yfinance/crypto-global) …")
+    from core.db import get_storage
+    from data_ingestion.macro_feeds.treasury_fetcher import (
+        fetch_treasury_curve, fetch_vix_stooq)
+    from data_ingestion.macro_feeds.yfinance_macro import fetch_yfinance_macro
+    from data_ingestion.onchain_feeds.exchange_flow_fetcher import fetch_crypto_global
+
+    db = get_storage()
+    n = 0
+    for fn in (fetch_treasury_curve, fetch_yfinance_macro, fetch_crypto_global):
+        try:
+            if fn(storage=db):
+                n += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[DAILY] macro feed %s failed: %s",
+                        getattr(fn, "__name__", "feed"), exc)
+    try:
+        vix = fetch_vix_stooq()
+        if vix:
+            db.write_macro_snapshot({"ts": datetime.now(UTC), "vix": float(vix)})
+            n += 1
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[DAILY] VIX fetch failed: %s", exc)
+    log.info("[DAILY] Macro ingest done — %d snapshot(s) written", n)
+
+
+@_retry(attempts=2, backoff=60.0)
+def job_ingest_edgar() -> None:
+    """SEC EDGAR 3-statement fundamentals for the US equity universe (key-free)."""
+    log.info("[DAILY] Ingesting SEC EDGAR company-facts …")
+    from core.db import get_storage
+    from scripts.backfill_fundamentals import backfill_edgar
+
+    db = get_storage()
+    n = backfill_edgar(db)
+    log.info("[DAILY] SEC EDGAR ingest done — %d snapshots", n)
+
+
+@_retry(attempts=2, backoff=60.0)
+def job_ingest_profiles() -> None:
+    """Company profiles + yfinance info snapshots for the whole equity/ETF universe (key-free)."""
+    log.info("[DAILY] Refreshing company profiles / fundamentals info …")
+    from core.db import get_storage
+    from data_ingestion.fundamental_feeds.yfinance_financials import fetch_company_profile
+    from data_ingestion.fundamental_feeds.yfinance_earnings import refresh_info_snapshot
+
+    db = get_storage()
+    skip = ("BTC-", "ETH-", "SOL-", "XRP-", "BNB-", "DOGE-",
+            "=X", "=F", "^", "DX-Y.NYB", "GC=F")
+    symbols = [s for s in (db.symbols() or []) if not s.startswith(skip)]
+    n_prof = n_snap = 0
+    for sym in symbols:
+        try:
+            if fetch_company_profile(sym, storage=db):
+                n_prof += 1
+            if refresh_info_snapshot(sym, storage=db):
+                n_snap += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[DAILY] profile skip %s: %s", sym, exc)
+    log.info("[DAILY] Profiles done — %d profiles, %d info snapshots (%d symbols)",
+             n_prof, n_snap, len(symbols))
 
 
 @_retry(attempts=3, backoff=30.0)
@@ -459,8 +544,14 @@ ALL_JOBS = {
                                 "Pull latest OHLCV (yfinance / Binance)"),
     "ingest_fundamentals":  Job("ingest_fundamentals",  job_ingest_fundamentals,
                                 "Refresh fundamental snapshots + DCF"),
+    "ingest_macro":         Job("ingest_macro",         job_ingest_macro,
+                                "Macro + on-chain-global indicators (treasury/VIX/crypto)"),
+    "ingest_edgar":         Job("ingest_edgar",         job_ingest_edgar,
+                                "SEC EDGAR 3-statement fundamentals (US equities)"),
+    "ingest_profiles":      Job("ingest_profiles",      job_ingest_profiles,
+                                "Company profiles + yfinance info snapshots"),
     "ingest_news":          Job("ingest_news",          job_ingest_news,
-                                "Sentiment sweep — news for top candidates"),
+                                "Sentiment sweep — news/GDELT/Reddit + LLM verdicts"),
     "build_features":       Job("build_features",       job_build_features,
                                 "Rebuild feature vectors for all symbols"),
     "screen_and_debate":    Job("screen_and_debate",    job_screen_and_debate,
@@ -558,8 +649,11 @@ def run_scheduler(dry_run: bool = False) -> None:
     # Daily job pipeline (in sequence, each waits for the next scheduled time)
     daily_schedule = [
         (9,  15, "ingest_prices"),
-        (9,  30, "ingest_fundamentals"),
-        (9,  35, "ingest_news"),
+        (9,  20, "ingest_macro"),
+        (9,  25, "ingest_edgar"),
+        (9,  30, "ingest_profiles"),
+        (9,  35, "ingest_fundamentals"),
+        (9,  40, "ingest_news"),
         (10,  0, "build_features"),
         (10, 30, "screen_and_debate"),
     ]

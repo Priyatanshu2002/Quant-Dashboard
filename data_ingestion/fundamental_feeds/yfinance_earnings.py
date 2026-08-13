@@ -93,7 +93,7 @@ def refresh_info_snapshot(ticker: str, storage: Storage | None = None) -> dict |
         "gross_margin": info.get("grossMargins"),
         "ebitda_margin": info.get("ebitdaMargins"),
         "fcf_yield": (info.get("freeCashflow") / info.get("marketCap"))
-                     if info.get("marketCap") else None,
+                     if info.get("freeCashflow") is not None and info.get("marketCap") else None,
         "market_cap": info.get("marketCap"),
         "current_price": price,
         "forward_pe": info.get("forwardPE"),
