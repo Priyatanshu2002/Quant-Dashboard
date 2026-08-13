@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agonistes · CFA 3-Statement + DCF Model</title>
+<style>
+  :root { --bg:#0f1420; --panel:#1a2233; --line:#2a3550; --txt:#e6ecf5; --mut:#8fa0bf;
+          --pos:#3ddc97; --neg:#ff6b6b; --acc:#5b8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.45 "Segoe UI",system-ui,sans-serif; }
+  header { padding:18px 26px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  header input, header button { background:var(--panel); border:1px solid var(--line); color:var(--txt); padding:8px 12px; border-radius:8px; font-size:14px; }
+  header button { cursor:pointer; background:var(--acc); border:none; font-weight:600; }
+  .wrap { padding:22px 26px; max-width:1180px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0 0 12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:right; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th:first-child,td:first-child { text-align:left; }
+  th { color:var(--mut); font-weight:600; }
+  .num { font-variant-numeric:tabular-nums; }
+  .pos { color:var(--pos); } .neg { color:var(--neg); }
+  .big { font-size:26px; font-weight:700; }
+  .muted { color:var(--mut); }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-weight:600; font-size:12px; }
+  .b-pos { background:rgba(61,220,151,.15); color:var(--pos); }
+  .b-neg { background:rgba(255,107,107,.15); color:var(--neg); }
+  .kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px; }
+  .kpi div { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .kpi .lbl { color:var(--mut); font-size:12px; }
+  .kpi .val { font-size:20px; font-weight:700; margin-top:2px; }
+  .err { color:var(--neg); background:var(--panel); border:1px solid var(--line); padding:16px; border-radius:12px; }
+  .val-neg { color:var(--neg); } .val-pos { color:var(--pos); }
+  .foot { color:var(--mut); font-size:12px; margin-top:16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CFA 3-Statement + DCF Model</h1>
+  <form id="frm" style="display:flex;gap:8px;margin-left:auto;">
+    <input id="sym" placeholder="AAPL" value="AAPL" style="width:110px;">
+    <button type="submit">Load</button>
+  </form>
+</header>
+<div class="wrap">
+  <div id="err"></div>
+  <div id="kpis" class="kpi"></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const fmt = (v, d=2) => (v==null?"—":(Number(v).toLocaleString(undefined,{maximumFractionDigits:d})));
+const money = (v) => v==null?"—":"$"+fmt(v,0);
+const pct = (v,d=1) => v==null?"—":(v*100).toFixed(d)+"%";
+
+function header(name, extra) { return `<h2>${name}</h2>${extra||""}`; }
+function table(cols, rows, fmts={}) {
+  return `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`+
+    `<tbody>${rows.map(r=>`<tr>${cols.map((c,i)=>{
+      const v=r[c]; const f=fmts[c]||(x=>x);
+      return `<td class="num">${f(v)}</td>`;}).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+function cls(v) { return v>0?"pos":(v<0?"neg":""); }
+
+function render(m) {
+  document.getElementById("err").innerHTML="";
+  const d=m.dcf, w=m.wacc, s=m.statement_model;
+  const mos=d.margin_of_safety;
+  const mosLabel = mos==null?"—":(mos>=0?`+${(mos*100).toFixed(1)}%`:`${(mos*100).toFixed(1)}%`);
+  const mosCls = mos>=0?"b-pos":"b-neg";
+
+  document.getElementById("kpis").innerHTML=`
+    <div><div class="lbl">${m.symbol} · Price</div><div class="val">${money(d.current_price)}</div></div>
+    <div><div class="lbl">Intrinsic value / share</div><div class="val">${money(d.intrinsic_value_per_share)}</div></div>
+    <div><div class="lbl">Margin of safety</div><div><span class="badge ${mosCls}">${mosLabel}</span></div></div>
+    <div><div class="lbl">WACC</div><div class="val">${pct(w.wacc,2)}</div></div>
+    <div><div class="lbl">Enterprise value</div><div class="val">${money(d.enterprise_value)}</div></div>
+    <div><div class="lbl">Terminal value % of EV</div><div class="val">${d.pv_of_terminal_value && d.enterprise_value? (d.pv_of_terminal_value/d.enterprise_value*100).toFixed(0)+"%":"—"}</div></div>`;
+
+  // WACC
+  const waccRows=[
+    {k:"Risk-free rate",v:w.risk_free},{k:"Equity risk premium",v:w.erp},{k:"Beta",v:w.beta},
+    {k:"Cost of equity (Ke)",v:w.cost_of_equity},{k:"Cost of debt (after-tax)",v:w.cost_of_debt_after_tax},
+    {k:"Weight equity / debt",v:`${(w.w_e*100).toFixed(0)}% / ${(w.w_d*100).toFixed(0)}%`},
+    {k:"WACC",v:w.wacc},
+  ];
+  const waccHtml=header("WACC")+table(["k","v"],waccRows.map(r=>({k:r.k,v:r.v})),{v:(x)=>pct(x,2)});
+
+  // DCF waterfall
+  const proj=d.projections||[];
+  const projHtml=header("FCFF Projection (fading growth)",`<div class="muted">Base FCFF ${money(d.base_fcff)} · Terminal g ${pct(d.terminal_growth,2)}</div>`)
+    +table(["year","growth","fcff","disc","pv"],
+      proj.map(r=>({year:r.year,growth:r.growth,fcff:r.fcff,disc:r.discount_factor,pv:r.pv})),
+      {growth:(x)=>pct(x,2),fcff:money,disc:(x)=>x.toFixed(3),pv:money});
+  const valRows=[
+    {k:"PV of projected FCF",v:d.pv_of_projected_fcf},{k:"PV of terminal value",v:d.pv_of_terminal_value},
+    {k:"Enterprise value",v:d.enterprise_value},{k:"Less: net debt",v:-d.net_debt},
+    {k:"Equity value",v:d.equity_value},{k:"Shares outstanding",v:d.shares_outstanding},
+    {k:"Intrinsic / share",v:d.intrinsic_value_per_share},
+  ];
+  const valHtml=header("DCF Valuation")+table(["k","v"],valRows.map(r=>({k:r.k,v:r.v})),{v:money});
+
+  // Scenarios
+  const sc=(m.scenarios||[]).map(s=>({label:s.label,intrinsic:s.intrinsic_value_per_share,margin:s.margin_of_safety}));
+  const scHtml=header("Scenarios")+table(["label","intrinsic","margin"],sc,
+    {intrinsic:money,margin:(x)=>x==null?"—":`<span class="${cls(x)}">${pct(x)}</span>`});
+
+  // Sensitivity grid
+  let sensHtml="";
+  if(m.sensitivity && m.sensitivity.grid){
+    const g=m.sensitivity;
+    const rows=g.grid.map((row,i)=>{
+      const o={wacc:g.waccs[i]};
+      g.terminal_growths.forEach((tg,j)=>o[String(tg)]=row[j]);
+      return o;
+    });
+    sensHtml=header("Sensitivity — intrinsic / share (WACC × terminal growth)")
+      +table(["wacc",...g.terminal_growths.map(String)],rows,
+        Object.fromEntries([["wacc",(x)=>pct(x,1)],...g.terminal_growths.map(tg=>[String(tg),x=>x==null?"—":fmt(x)])]));
+  }
+
+  // 3 statements
+  const series=(label,rows,fmtf)=>header(label)+table(["period","value"],(rows||[]).map(r=>({period:r.period,value:r.value})),{value:fmtf});
+  const stHtml=header("Linked 3-Statement History")
+    +`<div class="muted" style="margin-bottom:8px">Balance equation (A = L + E): <b>${s.balance_equation_check===true?"✓ balances":(s.balance_equation_check===false?"✗ out of balance":"n/a")}</b></div>`
+    +series("Revenue",s.income,money)
+    +`<div style="height:10px"></div>`+series("Net income",s.net_income,money)
+    +`<div style="height:10px"></div>`+series("Operating cash flow",s.operating_cash_flow,money)
+    +`<div style="height:10px"></div>`+series("Free cash flow",s.free_cash_flow,money);
+
+  const assumptions=header("Assumptions")+`<div class="muted">${Object.entries(m.assumptions).map(([k,v])=>`${k}: ${v}`).join(" · ")}<br>${s.linkage? s.linkage.fcff_identity:""}</div>`;
+
+  document.getElementById("grid").innerHTML=`
+    ${waccHtml} ${valHtml} ${scHtml} ${projHtml} ${sensHtml} ${stHtml} ${assumptions}`;
+}
+
+async function load(sym){
+  try{
+    const r=await fetch(`/api/model?symbol=${encodeURIComponent(sym)}`);
+    const j=await r.json();
+    if(j.error) throw new Error(j.error);
+    if(!j || !j.dcf) throw new Error("insufficient 3-statement data for "+sym);
+    render(j);
+  }catch(e){ document.getElementById("err").innerHTML=`<div class="err">Error: ${e.message}</div>`; }
+}
+
+document.getElementById("frm").addEventListener("submit",e=>{e.preventDefault();load(document.getElementById("sym").value.trim().toUpperCase());});
+load("AAPL");
+</script>
+</body>
+</html>

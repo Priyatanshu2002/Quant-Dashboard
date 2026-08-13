@@ -250,6 +250,14 @@ class AgonistesHandler(BaseHTTPRequestHandler):
         if path == "/api/financials":
             return _route_financials(db, qs)
 
+        if path == "/api/model":
+            from valuation.cfa_model import build_model
+            symbol = _q(qs, "symbol", "AAPL")
+            model = build_model(db, symbol)
+            if model is None:
+                return {"error": f"insufficient 3-statement data for {symbol.upper()}"}
+            return model
+
         if path == "/api/sentiment":
             return _route_sentiment(db, qs)
 
@@ -273,9 +281,24 @@ class AgonistesHandler(BaseHTTPRequestHandler):
 
         return {"error": f"unknown path {path}"}
 
+    def _send_html(self, html: str, status: int = 200) -> None:
+        body = html.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
+        # Live CFA 3-statement + DCF model viewer
+        if parsed.path in ("/model", "/model.html"):
+            from pathlib import Path
+            viewer = Path(__file__).resolve().parent.parent / "valuation" / "viewer.html"
+            self._send_html(viewer.read_text(encoding="utf-8") if viewer.exists()
+                            else "<h1>viewer.html missing</h1>")
+            return
         try:
             self._send(self._route("GET", parsed.path, qs))
         except Exception as e:  # noqa: BLE001
