@@ -185,11 +185,9 @@ def job_screen_and_debate() -> None:
     """Run screener → for each candidate → full LangGraph debate cycle."""
     log.info("[DAILY] Screening universe …")
     from screener.pipeline import run_screener
-    from langgraph_app.src.graph import build_graph
-    from core.db import get_storage
+    from langgraph_app.src.graph_definition import build_graph
     import uuid
 
-    db = get_storage()
     candidates = run_screener(top_n=10)
     log.info("[DAILY] Screener selected %d candidates", len(candidates))
 
@@ -263,7 +261,8 @@ def job_quick_benchmark() -> None:
     Compares against stored best Sharpe — triggers full benchmark if gap > 0.15.
     """
     log.info("[WEEKLY] Running quick benchmark (4 models, quick mode) …")
-    import subprocess, sys
+    import subprocess
+    import sys
     result = subprocess.run(
         [sys.executable, "-m", "strategy_builder.run",
          "--models", "vlstm", "tft", "lightgbm", "vol_timing",
@@ -359,7 +358,8 @@ def job_full_benchmark() -> None:
     Result determines which model gets retrained on RunPod next cycle.
     """
     log.info("[MONTHLY] Running FULL benchmark — 37 models, 3 seeds …")
-    import subprocess, sys
+    import subprocess
+    import sys
     result = subprocess.run(
         [sys.executable, "-m", "strategy_builder.run",
          "--all", "--seeds", "3", "--workers", "4"],

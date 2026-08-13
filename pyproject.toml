@@ -41,6 +41,7 @@ db = [
     "psycopg2-binary>=2.9",
     "qdrant-client>=1.9",
     "neo4j>=5.20",
+    "sentence-transformers>=2.2",   # local fallback embedder for Qdrant (GAP 2)
 ]
 dev = [
     "pytest>=8.0",
