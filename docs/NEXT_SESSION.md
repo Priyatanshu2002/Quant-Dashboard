@@ -36,20 +36,17 @@ Reference: `implementation_plan_v2.md` (project root) and `docs/system_visual_ma
 
 ## 3. IN-PROGRESS / UNCOMMITTED (This session's pending work)
 
-**The CFA-standard 3-statement + DCF model is BUILT and SERVING LIVE, but NOT yet committed:**
+**The CFA-standard 3-statement + DCF model is BUILT, SERVING LIVE, and COMMITTED+PUSHED** (commits `94a1d6e` + `9fe4553`, on `main` and `origin/main`). Working tree clean.
 
-- `valuation/cfa_model.py` — **NEW, UNTRACKED**. CFA-standard model: linked 3-statement history + WACC (CAPM) + two-stage FCFF DCF (Gordon terminal value) + base/bull/bear scenarios + WACC×growth sensitivity grid. Builds entirely from the store's real quarterly statements via `build_model(db, symbol)`.
-- `valuation/viewer.html` — **NEW, UNTRACKED**. Self-contained live HTML viewer (renders KPIs, WACC, FCFF projection, DCF waterfall, scenarios, sensitivity, 3-statement history).
-- `valuation/__init__.py` — **NEW, UNTRACKED**.
-- `core/api_server.py` — **MODIFIED, UNCOMMITTED**. Added routes: `GET /api/model?symbol=` (returns the CFA model JSON) and `GET /model` (serves the HTML viewer).
+- `valuation/cfa_model.py`, `valuation/viewer.html`, `valuation/__init__.py` — committed.
+- `core/api_server.py` `/api/model` + `/model` routes — committed.
 
 **The API server is currently RUNNING on `http://127.0.0.1:8000`** (background process). The live viewer is at **http://127.0.0.1:8000/model** (defaults to AAPL).
 
-Verified: `/api/model?symbol=AAPL` returns a coherent model (WACC 8.6%, intrinsic $200 vs price $302, margin −33.8%, balance equation A=L+E ✓, scenarios Base $200/Bull $220/Bear $182, 5×5 sensitivity grid). `ruff` + `py_compile` pass on all new files.
+Verified at HTTP layer: `/api/model?symbol=AAPL` returns a coherent model (WACC 8.63%, intrinsic $200.2 vs price $302.25, margin −33.8%); `/model` serves `viewer.html` byte-identical (8481 B, `text/html`). `ruff` + `py_compile` clean; 121 tests pass.
 
-**PENDING ACTIONS:**
-1. **Commit + push the `valuation/` package and `core/api_server.py`** (the current in-progress work).
-2. **Browser visual verification is blocked** — the browser daemon cached `allow_private_urls=false`. The Hermes config now has `allow_private_urls: true`, but the running daemon needs a restart to reload it. After restarting the browser daemon / Hermes session, load `http://127.0.0.1:8000/model` in the browser tool to visually confirm the render (I validated the full data contract instead).
+**REMAINING ACTION:**
+1. **Browser visual verification still blocked** — the browser daemon is not connected (calls return empty). The Hermes config has `allow_private_urls: true`, but the daemon needs a restart to reload it. After restarting the browser daemon / Hermes session, load `http://127.0.0.1:8000/model` in the browser tool to visually confirm the render (the data contract and serving are already validated).
 
 ---
 
@@ -110,7 +107,7 @@ curl -X POST "http://127.0.0.1:8000/api/fundamentals/refresh?symbol=MSFT"
 
 ## 7. Recommended Next Steps (priority order)
 
-1. **Commit + push** the in-progress `valuation/` package and `core/api_server.py` (finish this session's work).
+1. ~~**Commit + push** the in-progress `valuation/` package and `core/api_server.py`~~ — DONE (`94a1d6e`, pushed; tree clean).
 2. **Restart the browser daemon** so `allow_private_urls: true` takes effect, then visually verify the `/model` viewer renders.
 3. When the user supplies **FRED/BLS/Dune keys**, add them to `.env` and verify FRED/BLS/Dune pull real data.
 4. Decide on **Docker**: bring up Neo4j/Qdrant and verify `ingest_graph`/`ingest_vectors` populate live.
