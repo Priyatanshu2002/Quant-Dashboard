@@ -116,6 +116,28 @@ def risk_free_for_currency(currency: str | None, base_rf: float | None,
     return rf
 
 
+def risk_free_from_macro(macro: dict | None, prefer_real: bool = False) -> float:
+    """Risk-free rate from a macro snapshot (plan C8).
+
+    Returns the 10Y nominal yield (fraction) when available; if `prefer_real`
+    and a 10Y real (TIPS) yield + breakeven are present, returns the real yield
+    (nominal − breakeven implied) so discounting is real-terms-consistent.
+    Falls back to DEFAULT_RISK_FREE_RATE.
+    """
+    if not macro:
+        return DEFAULT_RISK_FREE_RATE
+    nominal = macro.get("us_10y_yield")
+    real = macro.get("us_10y_real_yield")
+    breakeven = macro.get("breakeven_inflation") or macro.get("t10y_breakeven_ie")
+    if prefer_real and real is not None:
+        return float(real)
+    if prefer_real and nominal is not None and breakeven is not None:
+        return float(nominal) - float(breakeven)
+    if nominal is not None:
+        return float(nominal)
+    return DEFAULT_RISK_FREE_RATE
+
+
 @dataclass
 class DiscountRates:
     risk_free: float

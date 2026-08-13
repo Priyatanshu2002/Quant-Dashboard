@@ -26,10 +26,17 @@ UTC = timezone.utc
 # Feature vector columns (mirrors 001_schema.sql feature_vectors table)
 # ─────────────────────────────────────────────────────────────────────
 FEATURE_COLUMNS = [
-    "rsi_14", "rsi_7", "macd_histogram", "macd_signal_val", "stoch_k",
-    "bb_pct_b", "bb_width", "atr_pct", "adx_14", "cci_20", "volume_z_score",
-    "vwap_pct", "price_vs_ema200_pct", "realized_vol_20",
-    "return_1bar", "return_5bar", "return_20bar", "return_60bar",
+    "rsi_14", "rsi_7", "rsi_2", "macd_histogram", "macd_signal_val", "stoch_k",
+    "stoch_d", "stoch_rsi", "williams_r", "roc_10", "roc_21", "tsi", "uo",
+    "awesome", "mfi_14", "bb_pct_b", "bb_width", "bb_bandwidth", "atr_pct",
+    "adx_14", "adx_pos", "adx_neg", "cci_20", "psar", "psar_direction",
+    "supertrend", "supertrend_direction", "aroon_up", "aroon_down", "aroon_osc",
+    "ichimoku_a", "ichimoku_b", "ichimoku_base", "ichimoku_conversion",
+    "keltner_width", "keltner_pct_b", "donchian_up", "donchian_down",
+    "volume_z_score", "vwap_pct", "price_vs_ema200_pct", "price_vs_ema50_pct",
+    "realized_vol_20", "realized_vol_10", "range_vol_14", "intraday_range_pct",
+    "return_skew_20", "return_kurt_20", "return_skew_60", "return_kurt_60",
+    "return_1bar", "return_5bar", "return_10bar", "return_20bar", "return_60bar",
     "eps_surprise_pct", "eps_yoy_growth", "revenue_yoy_growth",
     "dcf_margin_of_safety", "forward_pe", "peg_ratio", "fcf_yield", "roic",
     "ebitda_margin", "debt_to_equity", "insider_buy_sell_ratio",
@@ -38,7 +45,9 @@ FEATURE_COLUMNS = [
     "sentiment_score", "sentiment_momentum", "sentiment_volume",
     "reddit_sentiment", "gdelt_sentiment", "news_sentiment", "sentiment_extreme",
     "vix", "vix_regime", "yield_curve_spread", "fed_funds_rate",
-    "btc_dominance", "dxy",
+    "btc_dominance", "dxy", "breakeven_inflation", "us_10y_real_yield",
+    "us_30y_yield", "hy_credit_spread", "ig_credit_spread", "cpi_all_urban",
+    "unemployment_rate", "ism_pmi", "m2_supply", "nonfarm_payrolls",
     "days_to_earnings", "earnings_week", "days_to_expiry", "day_of_week",
     "month_end_effect", "quarter_end_effect",
     "future_return_1d", "future_return_5d", "future_return_20d", "future_sharpe_5d",
@@ -379,6 +388,19 @@ class SQLiteStorage(Storage):
                         conn.execute(f"ALTER TABLE {table} ADD COLUMN {c} {ctype}")
                     except sqlite3.OperationalError:
                         pass  # already added concurrently
+        # Ensure feature_vectors has every FEATURE_COLUMNS column (expanded
+        # technical set in C8), so existing dev DBs gain them on next open.
+        try:
+            fv_existing = {r["name"] for r in
+                           conn.execute("PRAGMA table_info(feature_vectors)").fetchall()}
+        except sqlite3.OperationalError:
+            return
+        for c in FEATURE_COLUMNS:
+            if c not in fv_existing:
+                try:
+                    conn.execute(f"ALTER TABLE feature_vectors ADD COLUMN {c} REAL")
+                except sqlite3.OperationalError:
+                    pass
 
     # ── market data ──
     def write_ohlcv(self, df: pd.DataFrame, symbol: str, asset_class: str,
