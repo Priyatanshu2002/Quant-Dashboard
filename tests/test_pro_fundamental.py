@@ -220,6 +220,43 @@ def test_mismatch_check_flags_value_trap():
     assert any("value trap" in f["signal"].lower() for f in flags)
 
 
+# ── Discount rates / country ERP ─────────────────────────────────────
+from valuation.discount_rates import (
+    country_default_spread,
+    country_erp,
+    default_spread_for_rating,
+    estimate_discount_rates,
+)
+
+
+def test_default_spread_for_rating_case_insensitive():
+    assert default_spread_for_rating("Aaa") == pytest.approx(0.0)         # 0bps
+    assert default_spread_for_rating("AAA") == pytest.approx(0.0)
+    assert default_spread_for_rating("Aa1") == pytest.approx(0.0027)      # 27bps
+    assert default_spread_for_rating("AA1") == pytest.approx(0.0027)
+    assert default_spread_for_rating("Baa3") == pytest.approx(0.02161)    # 216.1bps
+    # unknown → A3 117.9bps
+    assert default_spread_for_rating("ZZZ") == pytest.approx(0.01179)
+
+
+def test_country_erp_matches_damodaran():
+    # Mature 4.21%; US (Aa1, 27bps x 1.5046) ≈ 4.62%; India (Baa3, 216.1bps) ≈ 7.46%
+    assert country_erp("UNITED STATES") == pytest.approx(0.0462, abs=0.002)
+    assert country_erp("US") == pytest.approx(0.0462, abs=0.002)
+    assert country_erp("INDIA") == pytest.approx(0.0746, abs=0.002)
+    assert country_default_spread("INDIA") == pytest.approx(0.02161, abs=1e-4)
+
+
+def test_discount_rates_full_coverage():
+    snap = {"market_cap": 900_000, "total_debt": 100_000, "interest_expense": 5_000,
+            "pretax_income": 50_000, "income_tax": 10_500}
+    dr = estimate_discount_rates(snap, beta=1.2, country="UNITED STATES")
+    assert dr.coverage == "full"
+    # CAPM: rf 3.95% + 1.2*4.62% ≈ 9.5%
+    assert dr.cost_of_equity == pytest.approx(dr.risk_free + 1.2 * dr.erp)
+    assert dr.wacc > 0 and dr.wacc < dr.cost_of_equity  # debt is cheaper
+
+
 # ── FCFF projection DCF ───────────────────────────────────────────────
 from valuation.fcff_model import FCFFInputs, fcff_scenarios, fcff_sensitivity, project_fcff
 
@@ -271,9 +308,10 @@ def test_fcff_sensitivity_shape():
     assert len(s["waccs"]) == 5 and len(s["growths"]) == 5
     assert len(s["grid"]) == 5 and all(len(row) == 5 for row in s["grid"])
     # higher WACC → lower value
+    from itertools import pairwise
     for col in range(5):
         vals = [s["grid"][r][col] for r in range(5)]
-        for a, b in zip(vals, vals[1:]):
+        for a, b in pairwise(vals):
             assert b <= a
 
 
@@ -286,7 +324,7 @@ def test_build_model_live_smoke():
     try:
         from core.db import get_storage
         from valuation.cfa_model import build_model
-    except Exception:  # pragma: no cover
+    except ImportError:  # pragma: no cover
         _pt.skip("storage unavailable")
     db = get_storage()
     m = None

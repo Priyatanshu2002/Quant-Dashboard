@@ -18,17 +18,37 @@ const chartTooltip = {
   labelStyle: { color: "#8b99b3", fontSize: 11 },
 };
 
-const WACC_ROWS: [string, (w: ValuationDTO["wacc"]) => string | number][] = [
+const WACC_ROWS: [string, (w: ValuationDTO["discount_rates"]) => string | number][] = [
   ["Risk-free rate", (w) => fmtPct(w.risk_free, 2)],
-  ["Equity risk premium", (w) => fmtPct(w.erp)],
+  ["Equity risk premium", (w) => `${fmtPct(w.erp)} (${w.erp_source})`],
   ["Beta", (w) => fmtNum(w.beta, 2)],
   ["Cost of equity (Ke)", (w) => fmtPct(w.cost_of_equity, 2)],
+  ["Cost of debt (Kd)", (w) => fmtPct(w.cost_of_debt, 2)],
   ["Cost of debt (after-tax)", (w) => fmtPct(w.cost_of_debt_after_tax, 2)],
-  ["Effective tax rate", (w) => fmtPct(w.effective_tax_rate)],
+  ["Effective tax rate", (w) => fmtPct(w.tax_rate)],
   ["Weight equity / debt", (w) =>
-    `${(w.w_e * 100).toFixed(0)}% / ${(w.w_d * 100).toFixed(0)}%`],
+    w.w_e != null && w.w_d != null
+      ? `${(w.w_e * 100).toFixed(0)}% / ${(w.w_d * 100).toFixed(0)}%`
+      : "n/a"],
+  ["Synthetic rating", (w) => w.synthetic_rating ?? "n/a"],
+  ["Kd source", (w) => w.cost_of_debt_source],
   ["WACC", (w) => fmtPct(w.wacc, 2)],
 ];
+
+const RATIO_LABELS: Record<string, string> = {
+  gross_margin: "Gross margin", operating_margin: "Operating margin",
+  ebitda_margin: "EBITDA margin", net_margin: "Net margin", roe: "ROE",
+  roa: "ROA", roic: "ROIC", nopat: "NOPAT", current_ratio: "Current ratio",
+  quick_ratio: "Quick ratio", cash_ratio: "Cash ratio", debt_to_equity: "D/E",
+  debt_to_capital: "Debt/Capital", debt_to_assets: "Debt/Assets",
+  debt_to_ebitda: "Debt/EBITDA", interest_coverage: "Interest coverage",
+  net_debt: "Net debt", receivables_turnover: "AR turnover",
+  days_sales_outstanding: "DSO (days)", inventory_turnover: "Inventory turnover",
+  days_inventory_hand: "DIO (days)", days_payables_outstanding: "DPO (days)",
+  cash_conversion_cycle: "Cash conversion cycle", total_asset_turnover: "Asset turnover",
+  cash_to_income: "CFO / Net income", sustainable_growth: "Sustainable growth",
+  revenue_yoy_growth: "Revenue YoY",
+};
 
 export default function ValuationPage() {
   const { symbol: routeSymbol } = useParams();
@@ -51,13 +71,14 @@ export default function ValuationPage() {
   }, [symbol]);
 
   const d = data?.dcf;
-  const w = data?.wacc;
+  const w = data?.discount_rates;
   const mos = d?.margin_of_safety ?? null;
   const sm = data?.statement_model;
 
   const projChart = useMemo(
-    () => (d?.projections ?? []).map((p) => ({
-      year: `Y${p.year}`, fcff: p.fcff, pv: p.pv, growth: p.growth,
+    () => (d?.projection ?? []).map((p) => ({
+      year: `Y${p.year}`, fcff: p.fcff, pv: p.pv, revenue: p.revenue,
+      nopat: p.nopat, roc: p.roc,
     })),
     [d],
   );
@@ -67,12 +88,12 @@ export default function ValuationPage() {
     if (!sens) return [];
     return sens.grid.map((row, i) => ({
       wacc: `${(sens.waccs[i] * 100).toFixed(0)}%`,
-      cells: row.map((v, j) => ({ v, tg: sens.terminal_growths[j] })),
+      cells: row.map((v, j) => ({ v, g: sens.growths[j] })),
     }));
   }, [sens]);
 
   const sensColors = useMemo(() => {
-    if (!sensRows.length) return {};
+    if (!sensRows.length) return {} as Record<number, string>;
     const all = sensRows.flatMap((r) => r.cells).map((c) => c.v).filter((v): v is number => v != null);
     if (!all.length) return {};
     const min = Math.min(...all), max = Math.max(...all);
@@ -86,15 +107,13 @@ export default function ValuationPage() {
   }, [sensRows]);
 
   const baseWaccLabel = w ? `${(w.wacc * 100).toFixed(0)}%` : "";
-  const baseTg = d?.terminal_growth ?? null;
+  const baseG = d?.stable_growth ?? null;
 
   function seriesTable(rows: { period: string; value: number }[] | undefined) {
     return (
       <div style={{ overflowX: "auto" }}>
         <table className="table">
-          <thead>
-            <tr><th>Period</th><th>Value</th></tr>
-          </thead>
+          <thead><tr><th>Period</th><th>Value</th></tr></thead>
           <tbody>
             {(rows ?? []).map((r, i) => (
               <tr key={i}>
@@ -108,11 +127,15 @@ export default function ValuationPage() {
     );
   }
 
+  const scenLabels: { key: "base" | "bull" | "bear"; label: string }[] = [
+    { key: "base", label: "Base" }, { key: "bull", label: "Bull" }, { key: "bear", label: "Bear" },
+  ];
+
   return (
     <div className="stack">
       <div className="row-between wrap">
         <div className="row">
-          <h1 style={{ margin: 0, fontSize: 24 }}>CFA Valuation</h1>
+          <h1 style={{ margin: 0, fontSize: 24 }}>Valuation</h1>
           {data?.symbol && <span className="chip">{data.symbol}</span>}
           {data?.profile?.company_name && (
             <span className="muted" style={{ fontSize: 15 }}>{data.profile.company_name}</span>
@@ -129,13 +152,12 @@ export default function ValuationPage() {
         <div className="error-box">
           ⚠ {(data as { error?: string }).error}
           <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
-            This happens when {symbol} doesn't have enough quarterly statements yet —
-            the data backfill may still be running. Retry in a few minutes, or use the
+            This happens when {symbol} doesn't have enough quarterly statements yet — use the
             Financials page → "⟳ Refresh Data" to pull it on demand.
           </div>
         </div>
       )}
-      {!data && !error && <div className="loading">Building CFA 3-statement + DCF model for {symbol}…</div>}
+      {!data && !error && <div className="loading">Building the valuation model for {symbol}…</div>}
       {data && !(data as { error?: string }).error && !d && !error && (
         <div className="empty-note">No valuation model available for {symbol}.</div>
       )}
@@ -155,15 +177,15 @@ export default function ValuationPage() {
               </span>
             } />
             <Stat label="WACC" value={fmtPct(w.wacc, 2)} />
-            <Stat label="Enterprise value" value={fmtUSD(d.enterprise_value)} foot={
-              d.pv_of_terminal_value && d.enterprise_value
-                ? `Terminal ${(d.pv_of_terminal_value / d.enterprise_value * 100).toFixed(0)}% of EV`
+            <Stat label="Op. assets (EV)" value={fmtUSD(d.value_of_operating_assets)} foot={
+              d.pv_of_terminal_value && d.value_of_operating_assets
+                ? `Terminal ${(d.pv_of_terminal_value / d.value_of_operating_assets * 100).toFixed(0)}% of value`
                 : undefined
             } />
           </div>
 
           <div className="grid grid-2">
-            <Panel title="WACC" hint="CAPM cost of equity · after-tax cost of debt">
+            <Panel title="Discount Rates" hint={`CAPM · ${w.country ?? "mature"} · Kd via ${w.cost_of_debt_source}`}>
               <table className="table">
                 <thead><tr><th>Input</th><th>Value</th></tr></thead>
                 <tbody>
@@ -178,40 +200,48 @@ export default function ValuationPage() {
             </Panel>
 
             <div className="stack">
-              <Panel title="DCF Valuation" hint={`Two-stage FCFF · ${d.projection_years}yr · terminal g ${fmtPct(d.terminal_growth, 2)}`}>
+              <Panel title="DCF — Equity Bridge" hint="Operating assets → equity value">
                 <div className="grid grid-2">
-                  <Stat label="PV Projected FCF" value={fmtUSD(d.pv_of_projected_fcf)} sm />
-                  <Stat label="PV Terminal Value" value={fmtUSD(d.pv_of_terminal_value)} sm />
-                  <Stat label="Enterprise value" value={fmtUSD(d.enterprise_value)} sm />
-                  <Stat label="Net debt" value={fmtUSD(d.net_debt)} sm />
-                  <Stat label="Equity value" value={fmtUSD(d.equity_value)} sm />
+                  <Stat label="PV projected FCFF" value={fmtUSD(d.pv_of_projected_fcff)} sm />
+                  <Stat label="PV terminal value" value={fmtUSD(d.pv_of_terminal_value)} sm />
+                  <Stat label="Op. assets" value={fmtUSD(d.value_of_operating_assets)} sm />
+                  <Stat label="Debt" value={fmtUSD(d.equity_bridge.debt)} sm />
+                  <Stat label="Cash + non-op" value={fmtUSD(d.equity_bridge.cash + d.equity_bridge.non_operating_assets)} sm />
+                  <Stat label="Minority + pref" value={fmtUSD(d.equity_bridge.minority_interest + d.equity_bridge.preferred_stock)} sm />
+                  <Stat label="Equity value" value={fmtUSD(d.equity_bridge.equity_value)} sm />
                   <Stat label="Shares out" value={fmtNum(d.shares_outstanding, 0)} sm />
                 </div>
-                <div className="chart-tip">FCFF ≈ Operating Cash Flow − Capex (after-tax interest not modeled).</div>
+                <div className="chart-tip">
+                  Stable g {fmtPct(d.stable_growth, 2)} · stable WACC {fmtPct(d.stable_wacc, 2)} ·
+                  stable reinvest {fmtPct(d.stable_reinvestment, 1)} · sales→capital {fmtNum(d.sales_to_capital, 2)}
+                </div>
               </Panel>
 
-              <Panel title="Scenarios" hint="Revenue growth & EBIT margin">
+              <Panel title="Scenarios" hint="Base / Bull / Bear (growth, margin, WACC)">
                 <table className="table">
-                  <thead><tr><th>Scenario</th><th>Growth</th><th>Intrinsic</th><th>MoS</th></tr></thead>
+                  <thead><tr><th>Scenario</th><th>Growth</th><th>WACC</th><th>Intrinsic</th><th>MoS</th></tr></thead>
                   <tbody>
-                    {(data.scenarios ?? []).map((s) => (
-                      <tr key={s.label}>
-                        <td>{s.label}</td>
-                        <td className="mono">{fmtPct(s.growth)}</td>
-                        <td className="mono">{fmtUSD(s.intrinsic_value_per_share, 2)}</td>
-                        <td className="mono" style={{ color: pctColor(s.margin_of_safety ?? 0) }}>
-                          {s.margin_of_safety != null ? fmtPctSigned(s.margin_of_safety) : "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {scenLabels.map((s) => {
+                      const v = data.scenarios[s.key];
+                      return (
+                        <tr key={s.key}>
+                          <td>{s.label}</td>
+                          <td className="mono">{fmtPct(v.revenue_growth_rate)}</td>
+                          <td className="mono">{fmtPct(v.wacc, 2)}</td>
+                          <td className="mono">{fmtUSD(v.intrinsic_value_per_share, 2)}</td>
+                          <td className="mono" style={{ color: pctColor(v.margin_of_safety ?? 0) }}>
+                            {v.margin_of_safety != null ? fmtPctSigned(v.margin_of_safety) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </Panel>
             </div>
           </div>
 
-          <Panel title="FCFF Projection — fading growth"
-            hint={`Base FCFF ${fmtUSD(d.base_fcff)} · WACC ${fmtPct(w.wacc, 2)} · terminal g ${fmtPct(d.terminal_growth, 2)}`}>
+          <Panel title="FCFF Projection — driver-based (10 yr)" hint="Revenue growth → margin → tax → reinvestment → FCFF → ROC">
             <ResponsiveContainer width="100%" height={230}>
               <ComposedChart data={projChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke="#1a2440" strokeDasharray="3 3" vertical={false} />
@@ -219,21 +249,26 @@ export default function ValuationPage() {
                 <YAxis tick={{ fill: "#5c6b87", fontSize: 10.5 }} tickLine={false} axisLine={false}
                   tickFormatter={(v: number) => fmtUSD(v)} width={60} />
                 <Tooltip {...chartTooltip}
-                  formatter={(v, n) => [fmtUSD(v), n === "fcff" ? "FCFF" : "PV"]} />
+                  formatter={(v, n) => [fmtUSD(v), n === "fcff" ? "FCFF" : n === "pv" ? "PV" : "NOPAT"]} />
                 <Bar dataKey="fcff" name="fcff" fill="#22c55e" radius={[3, 3, 0, 0]} opacity={0.5} />
                 <Line type="monotone" dataKey="pv" name="pv" stroke="#4f8cff" strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
             <div style={{ overflowX: "auto", marginTop: 12 }}>
               <table className="table">
-                <thead><tr><th>Year</th><th>Growth</th><th>FCFF</th><th>Discount</th><th>PV</th></tr></thead>
+                <thead><tr><th>Y</th><th>Growth</th><th>Revenue</th><th>EBIT</th><th>NOPAT</th><th>Reinvest</th><th>FCFF</th><th>ROC</th><th>WACC</th><th>PV</th></tr></thead>
                 <tbody>
-                  {(d.projections ?? []).map((p) => (
+                  {(d.projection ?? []).map((p) => (
                     <tr key={p.year}>
                       <td className="mono faint">Y{p.year}</td>
                       <td className="mono">{fmtPct(p.growth)}</td>
+                      <td className="mono">{fmtUSD(p.revenue)}</td>
+                      <td className="mono">{fmtUSD(p.ebit)}</td>
+                      <td className="mono">{fmtUSD(p.nopat)}</td>
+                      <td className="mono">{fmtUSD(p.reinvestment)}</td>
                       <td className="mono">{fmtUSD(p.fcff)}</td>
-                      <td className="mono">{p.discount_factor.toFixed(3)}</td>
+                      <td className="mono">{p.roc != null ? fmtPct(p.roc) : "—"}</td>
+                      <td className="mono">{fmtPct(p.wacc)}</td>
                       <td className="mono">{fmtUSD(p.pv)}</td>
                     </tr>
                   ))}
@@ -242,35 +277,84 @@ export default function ValuationPage() {
             </div>
           </Panel>
 
-          <Panel title="Sensitivity — Intrinsic Value / Share" hint="WACC × terminal growth">
-            {sensRows.length ? (
-              <table className="table sens-table">
-                <thead>
-                  <tr>
-                    <th>WACC \ g</th>
-                    {sens?.terminal_growths.map((tg) => (
-                      <th key={tg} className="col">{fmtPct(tg)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sensRows.map((r) => (
-                    <tr key={r.wacc}>
-                      <td className="mono">{r.wacc}</td>
-                      {r.cells.map((c, j) => (
-                        <td key={j}
-                          className={`mono ${c.v == null ? "faint" : sensColors[c.v] ?? ""} ${r.wacc === baseWaccLabel && c.tg === baseTg ? "base" : ""}`}>
-                          {c.v == null ? "—" : `$${c.v.toFixed(2)}`}
-                        </td>
-                      ))}
+          <div className="grid grid-2">
+            <Panel title="Sensitivity — Intrinsic / share" hint="WACC × revenue growth">
+              {sensRows.length ? (
+                <table className="table sens-table">
+                  <thead>
+                    <tr>
+                      <th>WACC \\ g</th>
+                      {sens?.growths.map((g) => <th key={g} className="col">{fmtPct(g)}</th>)}
                     </tr>
+                  </thead>
+                  <tbody>
+                    {sensRows.map((r) => (
+                      <tr key={r.wacc}>
+                        <td className="mono">{r.wacc}</td>
+                        {r.cells.map((c, j) => (
+                          <td key={j} className={`mono ${c.v == null ? "faint" : sensColors[c.v] ?? ""} ${r.wacc === baseWaccLabel && c.g === baseG ? "base" : ""}`}>
+                            {c.v == null ? "—" : `$${c.v.toFixed(2)}`}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <div className="empty-note">No sensitivity grid.</div>}
+            </Panel>
+
+            <Panel title="Quality & Health" hint="Piotroski · Altman Z · Beneish M">
+              <div className="grid grid-3">
+                <Stat label="Piotroski F" value={data.quality.piotroski.score != null ? `${data.quality.piotroski.score}/9` : "—"} sm />
+                <Stat label="Altman Z" value={data.quality.altman_z.z != null ? fmtNum(data.quality.altman_z.z, 2) : "—"} sm
+                  foot={<span style={{ color: data.quality.altman_z.zone === "distress" ? "#f87171" : "#22c55e" }}>{data.quality.altman_z.zone}</span>} />
+                <Stat label="Beneish M" value={data.quality.beneish_m.m_score != null ? fmtNum(data.quality.beneish_m.m_score, 2) : "—"} sm
+                  foot={data.quality.beneish_m.manipulator ? <span style={{ color: "#f87171" }}>manipulator?</span> : "ok"} />
+              </div>
+              {data.quality.earnings_quality_flags.length > 0 && (
+                <ul className="flag-list">
+                  {data.quality.earnings_quality_flags.map((f, i) => (
+                    <li key={i} className={f.severity === "warning" ? "warn" : ""}>⚠ {f.flag}</li>
                   ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="empty-note">No sensitivity grid.</div>
-            )}
-            <div className="chart-tip">Outlined cell = base case. Green &gt;75th percentile intrinsic; red &lt;25th.</div>
+                </ul>
+              )}
+              {data.relative.mismatches.map((m, i) => (
+                <div key={i} className="error-box" style={{ padding: 6, fontSize: 12 }}>⚠ {m.signal}</div>
+              ))}
+            </Panel>
+          </div>
+
+          <Panel title="Ratios" hint="CFA framework">
+            <div className="grid grid-3">
+              {Object.entries(RATIO_LABELS).map(([key, label]) => {
+                const v = data.ratios[key];
+                if (v == null) return null;
+                const flag = data.ratio_health_flags.find((f) => f.ratio === key);
+                const isPct = ["gross_margin", "operating_margin", "ebitda_margin", "net_margin",
+                  "roe", "roa", "roic", "sustainable_growth", "revenue_yoy_growth",
+                  "cash_to_income", "debt_to_capital", "debt_to_assets"].includes(key);
+                return (
+                  <div key={key} className="ratio-tile">
+                    <div className="ratio-label">{label}</div>
+                    <div className={`mono ratio-value ${flag && !flag.healthy ? "warn-text" : ""}`}>
+                      {isPct ? fmtPct(v) : fmtNum(v, 2)}
+                    </div>
+                    {flag && <div className="ratio-note">{flag.healthy ? "✓ ok" : "⚠ " + flag.benchmark}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <Panel title="Relative Valuation" hint="Multiples">
+            <div className="grid grid-3">
+              {Object.entries(data.relative.multiples ?? {}).map(([k, v]) => (
+                <div key={k} className="ratio-tile">
+                  <div className="ratio-label">{k.replace(/_/g, " ")}</div>
+                  <div className="mono ratio-value">{fmtNum(v, 2)}</div>
+                </div>
+              ))}
+            </div>
           </Panel>
 
           <Panel title="Linked 3-Statement History" hint="Trailing quarters from the store">

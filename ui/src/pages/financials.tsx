@@ -152,11 +152,11 @@ export default function FinancialsPage() {
   const cfa = data?.cfa; // CFA-standard model (authoritative) — prefer over snapshot quick-DCF
   const dInt = cfa?.dcf?.intrinsic_value_per_share ?? dcf?.intrinsic_value_per_share;
   const dMos = cfa?.dcf?.margin_of_safety ?? dcf?.margin_of_safety;
-  const dWacc = cfa?.wacc?.wacc ?? dcf?.wacc;
-  const dTg = cfa?.dcf?.terminal_growth ?? dcf?.terminal_growth;
-  const dPvFcf = cfa?.dcf?.pv_of_projected_fcf ?? dcf?.pv_of_projected_fcf;
+  const dWacc = cfa?.discount_rates?.wacc ?? dcf?.wacc;
+  const dTg = cfa?.dcf?.stable_growth ?? dcf?.terminal_growth;
+  const dPvFcf = cfa?.dcf?.pv_of_projected_fcff ?? dcf?.pv_of_projected_fcf;
   const dPvTv = cfa?.dcf?.pv_of_terminal_value ?? dcf?.pv_of_terminal_value;
-  const dBaseFcff = cfa?.dcf?.base_fcff ?? dcf?.inputs?.ttm_free_cash_flow;
+  const dBaseFcff = cfa?.dcf?.projection?.[0]?.fcff ?? dcf?.inputs?.ttm_free_cash_flow;
   const fund = data?.llm_analyses?.fundamental?.verdict;
   const newsLLM = data?.llm_analyses?.news?.verdict;
 
@@ -193,10 +193,11 @@ export default function FinancialsPage() {
     [data],
   );
 
-  const sens = cfa?.sensitivity ?? dcf?.sensitivity;
+  const sens = (cfa?.sensitivity ?? dcf?.sensitivity) as
+    { waccs: number[]; terminal_growths?: number[]; growths?: number[]; grid: (number | null)[][] } | null | undefined;
   const sensRows = sens?.grid.map((row, i) => ({
     wacc: `${(sens.waccs[i] * 100).toFixed(0)}%`,
-    cells: row.map((v, j) => ({ v, tg: sens.terminal_growths[j] })),
+    cells: row.map((v, j) => ({ v, tg: sens.terminal_growths?.[j] ?? sens.growths?.[j] })),
   })) ?? [];
 
   const sensColors = useMemo(() => {
@@ -296,7 +297,9 @@ export default function FinancialsPage() {
                   <thead>
                     <tr>
                       <th>WACC \ g</th>
-                      {sens?.terminal_growths.map((tg) => (
+                      {sens?.terminal_growths?.map((tg: number) => (
+                        <th key={tg} className="col">{fmtPct(tg)}</th>
+                      )) ?? sens?.growths?.map((tg: number) => (
                         <th key={tg} className="col">{fmtPct(tg)}</th>
                       ))}
                     </tr>

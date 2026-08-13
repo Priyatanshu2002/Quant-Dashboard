@@ -72,10 +72,16 @@ _SYNTHETIC_RATING = [
 ]
 
 
+# Normalized (upper, no-space) → spread, so "Aaa"/"AAA" and "Aa1"/"AA1" resolve.
+_RATING_SPREAD_NORM = {k.upper().replace(" ", ""): v for k, v in RATING_SPREAD_BPS.items()}
+
+
 def default_spread_for_rating(rating: str) -> float:
     """Moody's rating → default spread (decimal). Unknown → A3 (117.9bps)."""
-    r = (rating or "").upper().split("/")[0].strip()
-    bps = RATING_SPREAD_BPS.get(r, 117.9)
+    if not rating:
+        return 117.9 / 10_000.0
+    r = rating.upper().split("/")[0].strip().replace(" ", "")
+    bps = _RATING_SPREAD_NORM.get(r, 117.9)
     return bps / 10_000.0
 
 
@@ -93,7 +99,7 @@ def country_default_spread(country: str | None) -> float:
     """Country → default spread (decimal). Mature/Aaa countries → 0."""
     if not country:
         return 0.0
-    rating = _COUNTRY.get(country.upper().replace(" ", "").strip(), "Aaa")
+    rating = _COUNTRY.get(country.upper().strip(), "Aaa")
     return default_spread_for_rating(rating)
 
 

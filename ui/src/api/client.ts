@@ -176,58 +176,94 @@ export interface BacktestReportDTO {
 }
 
 // ── CFA 3-statement + DCF valuation model (/api/model) ──────────────
-export interface WaccModel {
+export interface DiscountRates {
   risk_free: number;
   erp: number;
+  erp_source: string;
   beta: number;
   cost_of_equity: number;
   cost_of_debt: number;
   cost_of_debt_after_tax: number;
-  effective_tax_rate: number;
-  equity_value: number;
-  debt_value: number;
-  w_e: number;
-  w_d: number;
+  tax_rate: number;
+  w_e: number | null;
+  w_d: number | null;
   wacc: number;
+  country: string | null;
+  synthetic_rating: string | null;
+  cost_of_debt_source: string;
+  coverage: string;
 }
 
-export interface DcfProjection {
+export interface DcfRow {
   year: number;
   growth: number;
+  revenue: number;
+  ebit_margin: number;
+  ebit: number;
+  tax_rate: number;
+  nopat: number;
+  reinvestment: number;
+  invested_capital: number;
   fcff: number;
+  roc: number | null;
+  wacc: number;
   discount_factor: number;
   pv: number;
 }
 
-export interface DcfModel {
-  base_fcff: number;
-  projection_years: number;
-  terminal_growth: number;
-  net_debt: number;
-  projections: DcfProjection[];
-  pv_of_projected_fcf: number;
-  pv_of_terminal_value: number;
-  terminal_value: number;
-  enterprise_value: number;
+export interface EquityBridge {
+  operating_assets: number;
+  debt: number;
+  minority_interest: number;
+  preferred_stock: number;
+  cash: number;
+  non_operating_assets: number;
+  options_value: number;
   equity_value: number;
-  shares_outstanding: number;
-  intrinsic_value_per_share: number | null;
+  probability_of_failure: number;
+}
+
+export interface DcfModel {
+  base_revenue: number;
+  base_ebit: number;
+  base_margin: number;
+  sales_to_capital: number;
+  riskfree: number;
+  initial_wacc: number;
+  stable_wacc: number;
+  stable_growth: number;
+  stable_roc: number;
+  stable_reinvestment: number;
+  projection: DcfRow[];
+  pv_of_projected_fcff: number;
+  terminal_cash_flow: number;
+  terminal_value: number;
+  pv_of_terminal_value: number;
+  value_of_operating_assets: number;
+  equity_bridge: EquityBridge;
+  shares_outstanding: number | null;
   current_price: number | null;
+  intrinsic_value_per_share: number | null;
   margin_of_safety: number | null;
-  upside_downsides_pct: number | null;
 }
 
 export interface Scenario {
-  label: string;
-  growth: number;
-  margin_adj: number;
   intrinsic_value_per_share: number | null;
   margin_of_safety: number | null;
+  wacc: number;
+  terminal_growth: number;
+  revenue_growth_rate: number;
+}
+
+export interface ScenarioDict {
+  base: Scenario;
+  bull: Scenario;
+  bear: Scenario;
 }
 
 export interface SensitivityGrid {
   waccs: number[];
-  terminal_growths: number[];
+  growths: number[];
   grid: (number | null)[][];
 }
 
@@ -249,15 +285,33 @@ export interface StatementModel {
   linkage: { fcff_identity: string };
 }
 
+export interface QualityModel {
+  piotroski: { score: number | null; components: Record<string, boolean>; label?: string };
+  altman_z: { z: number | null; zone: string; inputs?: Record<string, number> };
+  beneish_m: { m_score: number | null; manipulator: boolean | null; inputs?: Record<string, number> };
+  earnings_quality_flags: { flag: string; severity: string }[];
+}
+
+export interface HealthFlag {
+  ratio: string;
+  value: number;
+  healthy: boolean;
+  benchmark: string;
+}
+
 export interface ValuationDTO {
   symbol: string;
   as_of: string;
   profile: CompanyProfile | null;
   statement_model: StatementModel;
-  wacc: WaccModel;
+  discount_rates: DiscountRates;
   dcf: DcfModel;
-  scenarios: Scenario[];
+  scenarios: ScenarioDict;
   sensitivity: SensitivityGrid;
+  ratios: Record<string, number>;
+  ratio_health_flags: HealthFlag[];
+  quality: QualityModel;
+  relative: { multiples: Record<string, number>; mismatches: { signal: string; severity: string }[] };
   assumptions: Record<string, unknown>;
 }
 

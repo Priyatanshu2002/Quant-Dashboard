@@ -361,3 +361,13 @@ a:hover { color: var(--accent-strong); }
   background: var(--raised) !important; border: 1px solid var(--border) !important;
   border-radius: 8px !important; color: var(--text) !important; font-size: 12px;
 }
+
+/* valuation ratio tiles + quality flags */
+.ratio-tile { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 10px 12px; }
+.ratio-tile .ratio-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+.ratio-tile .ratio-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.ratio-tile .ratio-note { font-size: 10.5px; color: var(--text-faint); margin-top: 2px; }
+.warn-text { color: #f87171; }
+.flag-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.flag-list li { font-size: 12px; padding: 5px 8px; border-radius: 6px; margin-top: 4px; background: var(--panel-2); border-left: 3px solid #f59e0b; }
+.flag-list li.warn { border-left-color: #f87171; }
