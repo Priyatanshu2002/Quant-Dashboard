@@ -62,23 +62,30 @@ def piotroski(income: list[dict], balance: list[dict],
     comp["accruals_cfo_exceeds_ni"] = bool(cfo is not None and ni is not None and cfo > ni)
 
     # Leverage / liquidity / source of funds (3)
-    td_cur, td_prior = _latest(balance, "total_debt"), _latest(balance[:-4], "total_debt") if len(balance) >= 5 else None
+    td_cur = _latest(balance, "total_debt")
+    td_prior = _latest(balance[:-4], "total_debt") if len(balance) >= 5 else None
     comp["leverage_decreased"] = bool(td_cur is not None and td_prior is not None and td_cur < td_prior)
     ca_cur, cl_cur = _latest(balance, "current_assets"), _latest(balance, "current_liabilities")
-    ca_prior, cl_prior = (_latest(balance[:-4], "current_assets"), _latest(balance[:-4], "current_liabilities")) if len(balance) >= 5 else (None, None)
+    ca_prior = _latest(balance[:-4], "current_assets") if len(balance) >= 5 else None
+    cl_prior = _latest(balance[:-4], "current_liabilities") if len(balance) >= 5 else None
     comp["liquidity_increased"] = bool(ca_cur is not None and cl_cur and ca_prior is not None and cl_prior and
                                        (ca_cur / cl_cur) > (ca_prior / cl_prior))
     # no new equity: shares_outstanding not materially up
-    so_cur, so_prior = _latest(income, "shares_outstanding"), _latest(income[:-4], "shares_outstanding") if len(income) >= 5 else None
+    so_cur = _latest(income, "shares_outstanding")
+    so_prior = _latest(income[:-4], "shares_outstanding") if len(income) >= 5 else None
     comp["no_new_shares"] = not (so_cur is not None and so_prior and so_cur > so_prior * 1.02)
 
     # Operating efficiency (2)
-    gp_cur, gp_prior = _sum_last(income, "gross_profit", 4), _sum_last(income[:-4], "gross_profit", 4) if len(income) >= 8 else None
-    rev_cur, rev_prior = _sum_last(income, "total_revenue", 4), _sum_last(income[:-4], "total_revenue", 4) if len(income) >= 8 else None
-    comp["gross_margin_increased"] = bool(gp_cur is not None and rev_cur and gp_prior is not None and rev_prior and
-                                          (gp_cur / rev_cur) > (gp_prior / rev_prior))
-    comp["asset_turnover_increased"] = bool(rev_cur is not None and ta_cur and rev_prior is not None and ta_prior and
-                                            (rev_cur / ta_cur) > (rev_prior / ta_prior))
+    gp_cur = _sum_last(income, "gross_profit", 4)
+    gp_prior = _sum_last(income[:-4], "gross_profit", 4) if len(income) >= 8 else None
+    rev_cur = _sum_last(income, "total_revenue", 4)
+    rev_prior = _sum_last(income[:-4], "total_revenue", 4) if len(income) >= 8 else None
+    comp["gross_margin_increased"] = bool(
+        gp_cur is not None and rev_cur and gp_prior is not None and rev_prior
+        and (gp_cur / rev_cur) > (gp_prior / rev_prior))
+    comp["asset_turnover_increased"] = bool(
+        rev_cur is not None and ta_cur and rev_prior is not None and ta_prior
+        and (rev_cur / ta_cur) > (rev_prior / ta_prior))
 
     score = sum(1 for v in comp.values() if v)
     return {"score": score, "components": comp,
@@ -144,21 +151,25 @@ def beneish_m(income: list[dict], balance: list[dict],
         return ratio if ratio is not None and ratio not in (float("inf"), float("-inf")) else 0.0
 
     # DSRI
-    dsri = _safe((ar_t / rev_t) / (ar_p / rev_p)) if (rev_t and rev_p and ar_t is not None and ar_p is not None) else 0.0
+    dsri = (_safe((ar_t / rev_t) / (ar_p / rev_p))
+            if (rev_t and rev_p and ar_t is not None and ar_p is not None) else 0.0)
     # GMI
     gm_t = (gp_t / rev_t) if (gp_t and rev_t) else None
     gm_p = (gp_p / rev_p) if (gp_p and rev_p) else None
     gmi = _safe(gm_p / gm_t) if (gm_t and gm_p) else 0.0
     # AQI
-    aqi = _safe((1 - (pp_t / ta_t)) / (1 - (pp_p / ta_p))) if (ta_t and ta_p and pp_t is not None and pp_p is not None) else 0.0
+    aqi = (_safe((1 - (pp_t / ta_t)) / (1 - (pp_p / ta_p)))
+           if (ta_t and ta_p and pp_t is not None and pp_p is not None) else 0.0)
     # SGI
     sgi = _safe(rev_t / rev_p) if (rev_t and rev_p) else 0.0
     # DEPI
     depi = 1.0
     # SGAI
-    sgai = _safe((sga_t / rev_t) / (sga_p / rev_p)) if (sga_t and sga_p and rev_t and rev_p) else 0.0
+    sgai = (_safe((sga_t / rev_t) / (sga_p / rev_p))
+            if (sga_t and sga_p and rev_t and rev_p) else 0.0)
     # LVGI
-    lvgi = _safe((td_t / ta_t) / (td_p / ta_p)) if (ta_t and ta_p and td_t is not None and td_p is not None) else 0.0
+    lvgi = (_safe((td_t / ta_t) / (td_p / ta_p))
+            if (ta_t and ta_p and td_t is not None and td_p is not None) else 0.0)
     # TATA
     ni_t = _ttm(income, "net_income", 0) or 0.0
     cfo_t = _ttm(cashflow, "operating_cash_flow", 0) or 0.0
@@ -199,7 +210,8 @@ def earnings_quality_flags(income: list[dict], balance: list[dict],
             dso_p = ar_p * 365 / rev_p
             dso_c = _dsos()
             if dso_c and dso_p and dso_c > dso_p * 1.15:
-                flags.append({"flag": "Rising DSO (possible channel stuffing / slow collections)", "severity": "warning"})
+                flags.append({"flag": "Rising DSO (possible channel stuffing / slow "
+                                      "collections)", "severity": "warning"})
     # Declining inventory turnover
     cogs = _sum_last(income, "cost_of_revenue", 4)
     inv = _latest(balance, "inventory")

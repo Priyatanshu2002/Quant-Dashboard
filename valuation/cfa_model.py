@@ -102,6 +102,9 @@ def ltm_figures(statements: dict[str, list[dict]], periods: int = 4) -> dict:
         if (cfo is not None and capex is not None and int_exp is not None and eff_tax is not None) \
         else ((cfo - capex) if (cfo is not None and capex is not None) else None)
     fcff = fcff_ebit if fcff_ebit is not None else fcff_cfo
+    if fcff is None:
+        # Fallback: the cash-flow statement's own FCF line (capex/D&A may not be tagged).
+        fcff = _sum("cashflow", "free_cash_flow")
 
     return {
         "revenue": revenue, "ebit": ebit, "net_income": ni, "income_tax": tax,
@@ -284,6 +287,9 @@ def build_model(db, symbol: str, rf: float | None = None,
     sales_to_capital = (ltm["revenue"] / invested_capital) if invested_capital > 0 else None
     growth = revenue_growth(statements, ltm)
     shares = _num(ltm.get("shares_outstanding")) or _num(snap.get("shares_outstanding"))
+    # Many statement feeds omit per-period share count → derive from market data.
+    if not shares and market_cap and price:
+        shares = market_cap / price
 
     inp = FCFFInputs(
         revenue=ltm["revenue"], ebit=ltm.get("ebit") or 0.0,

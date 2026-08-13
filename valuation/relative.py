@@ -134,9 +134,11 @@ def mismatch_check(quality: dict, multiples: dict) -> list[dict]:
     cheap = (pe is not None and pe < 12) or (ps is not None and ps < 1) or (pb is not None and pb < 1)
     if cheap:
         if piot is not None and piot <= 3:
-            flags.append({"signal": "Cheap + weak Piotroski (<=3) — potential value trap", "severity": "warning"})
+            flags.append({"signal": "Cheap + weak Piotroski (<=3) — potential "
+                                    "value trap", "severity": "warning"})
         if altz == "distress":
-            flags.append({"signal": "Cheap + Altman-Z distress — potential value trap", "severity": "warning"})
+            flags.append({"signal": "Cheap + Altman-Z distress — potential "
+                                    "value trap", "severity": "warning"})
     expensive = (pe is not None and pe > 30) or (ps is not None and ps > 5)
     if expensive and altz == "distress":
         flags.append({"signal": "Expensive + Altman-Z distress — avoid", "severity": "warning"})

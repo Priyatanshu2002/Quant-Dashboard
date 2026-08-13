@@ -217,7 +217,8 @@ def fcff_scenarios(inp: FCFFInputs) -> dict:
             **{k: getattr(inp, k) for k in FCFFInputs.__dataclass_fields__})
         i2.growth_next = max(0.0, inp.growth_next + d["growth"])
         i2.growth_2_5 = max(0.0, inp.growth_2_5 + d["growth"])
-        i2.target_margin = (inp.target_margin if inp.target_margin is not None else inp.base_margin) + d["margin"]
+        base_margin = inp.target_margin if inp.target_margin is not None else inp.base_margin
+        i2.target_margin = base_margin + d["margin"]
         i2.initial_wacc = inp.initial_wacc + d["wacc"]
         if i2.stable_wacc is None:
             i2.stable_wacc = inp.riskfree + 0.045

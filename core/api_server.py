@@ -33,6 +33,26 @@ def _q(qs: dict, key: str, default: str) -> str:
 
 
 # ── route handlers ──────────────────────────────────────────────────────
+# Map SEC EDGAR XBRL keys → the canonical yfinance keys the UI row-defs expect,
+# so the Annual (SEC) and Quarterly (yfinance) statement views line up.
+_SEC_KEY_ALIAS = {
+    "revenue": "total_revenue",
+    "eps_actual": "eps_diluted",
+    "depreciation_amortization": "depreciation",
+    "common_stock": "common_stock",
+    "net_ppe": "net_ppe",
+}
+
+
+def _norm_statement_keys(row: dict) -> dict:
+    out = dict(row)
+    for src, dst in _SEC_KEY_ALIAS.items():
+        if src in out and src != dst and dst not in out:
+            out[dst] = out[src]
+            del out[src]
+    return out
+
+
 def _route_financials(db, qs: dict) -> dict:
     symbol = _q(qs, "symbol", "AAPL").upper()
 
@@ -50,11 +70,11 @@ def _route_financials(db, qs: dict) -> dict:
     annual_statements: dict[str, list] = {}
     for name in ("income", "balance", "cashflow"):
         q = db.query_financial_statements(symbol, statement=name, quarters=24, period_type="QUARTERLY")
-        q = [{"period": r["period"], **r["data"]} for r in q]
+        q = [_norm_statement_keys({"period": r["period"], **r["data"]}) for r in q]
         q.sort(key=lambda r: r["period"])
         statements[name] = q
         a = db.query_financial_statements(symbol, statement=name, quarters=24, period_type="ANNUAL")
-        a = [{"period": r["period"], **r["data"]} for r in a]
+        a = [_norm_statement_keys({"period": r["period"], **r["data"]}) for r in a]
         a.sort(key=lambda r: r["period"])
         annual_statements[name] = a
 
@@ -144,10 +164,12 @@ def _route_refresh_fundamentals(db, qs: dict) -> dict:
     symbol = _q(qs, "symbol", "AAPL").upper()
     from data_ingestion.fundamental_feeds.dcf_scenarios import apply_dcf_to_snapshot
     from data_ingestion.fundamental_feeds.yfinance_earnings import (
-        fetch_earnings_dates, refresh_info_snapshot,
+        fetch_earnings_dates,
+        refresh_info_snapshot,
     )
     from data_ingestion.fundamental_feeds.yfinance_financials import (
-        fetch_company_profile, fetch_quarterly_statements,
+        fetch_company_profile,
+        fetch_quarterly_statements,
     )
     from data_ingestion.sentiment_feeds.llm_analyst import analyze_fundamentals
 
@@ -546,7 +568,7 @@ class AgonistesHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         return True
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         # Unify the old standalone CFA viewer into the app's Valuation page.
@@ -558,20 +580,20 @@ class AgonistesHandler(BaseHTTPRequestHandler):
                 return
         try:
             self._send(self._route("GET", parsed.path, qs))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("GET %s failed", parsed.path)
             self._send({"error": str(e)}, status=500)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         try:
             self._send(self._route("POST", parsed.path, qs))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("POST %s failed", parsed.path)
             self._send({"error": str(e)}, status=500)
 
-    def log_message(self, fmt, *args):  # noqa: A003
+    def log_message(self, fmt, *args):
         log.debug(fmt, *args)
 
 
