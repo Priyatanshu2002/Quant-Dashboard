@@ -188,6 +188,57 @@ def _route_refresh_sentiment(db, qs: dict) -> dict:
             "llm": verdict}
 
 
+def _route_screener_market(db) -> dict:
+    """Full market screener — every scoreable instrument with live price data,
+    sorted by composite, plus per-signal components (TradingView-style table)."""
+    from screener.pipeline import score_universe
+
+    signals = score_universe(db)
+    rows = []
+    for s in signals:
+        try:
+            ohlcv = db.query_ohlcv(s.symbol)
+            closes = ohlcv["close"].dropna()
+            price = float(closes.iloc[-1]) if len(closes) else None
+            change = float(closes.iloc[-1] / closes.iloc[-2] - 1) if len(closes) >= 2 else None
+            volume = float(ohlcv["volume"].dropna().iloc[-1]) if len(ohlcv) else None
+        except Exception:  # noqa: BLE001
+            price = change = volume = None
+        try:
+            snap = db.query_latest_fundamentals(s.symbol) or {}
+        except Exception:  # noqa: BLE001
+            snap = {}
+        try:
+            prof = db.get_company_profile(s.symbol) or {}
+        except Exception:  # noqa: BLE001
+            prof = {}
+        b = s.breakdown()
+        rows.append({
+            "symbol": s.symbol,
+            "name": prof.get("company_name"),
+            "asset_class": s.asset_class,
+            "sector": prof.get("sector"),
+            "price": round(price, 2) if price else None,
+            "change_pct": round(change * 100, 2) if change is not None else None,
+            "volume": volume,
+            "market_cap": snap.get("market_cap"),
+            "composite": round(b["composite"], 1),
+            "technical": round(b["technical"], 1),
+            "fundamental": round(b["fundamental"], 1),
+            "sentiment": round(b["sentiment"], 1),
+            "macro": round(b["macro"], 1),
+            "momentum": round(b["momentum"], 1),
+        })
+    rows.sort(key=lambda r: -(r["composite"] or 0))
+    return {"count": len(rows), "rows": rows}
+
+
+def _route_screener_top(db, qs: dict) -> dict | list:
+    from screener.pipeline import run_screener, screener_table
+    top_n = int(_q(qs, "top", "10"))
+    return screener_table(run_screener(top_n=top_n, db=db))
+
+
 def _route_monitoring(db) -> dict:
     """System health: storage backend, table coverage, DB size, containerized
     services, and feed status (plan §11 Monitoring)."""
@@ -287,8 +338,10 @@ class AgonistesHandler(BaseHTTPRequestHandler):
         db = get_storage()
 
         if path == "/api/screener/top":
-            from screener.pipeline import run_screener, screener_table
-            return screener_table(run_screener(top_n=10, db=db))
+            return _route_screener_top(db, qs)
+
+        if path == "/api/screener/market":
+            return _route_screener_market(db)
 
         if path == "/api/backtest/report":
             from backtesting.data_loader import get_ohlcv

@@ -26,6 +26,23 @@ export interface ScreenerRow {
   composite: number;
 }
 
+export interface MarketRow {
+  symbol: string;
+  name?: string | null;
+  asset_class: string;
+  sector?: string | null;
+  price?: number | null;
+  change_pct?: number | null;
+  volume?: number | null;
+  market_cap?: number | null;
+  composite: number;
+  technical: number;
+  fundamental: number;
+  sentiment: number;
+  macro: number;
+  momentum: number;
+}
+
 export interface CompanyProfile {
   company_name?: string;
   sector?: string;
@@ -260,6 +277,7 @@ export interface MonitoringDTO {
 
 export const api = {
   screener: () => get<ScreenerRow[]>("/screener/top"),
+  screenerMarket: () => get<{ count: number; rows: MarketRow[] }>("/screener/market"),
   backtest: (symbol = "SPY") => get<BacktestReportDTO>(`/backtest/report?symbol=${symbol}`),
   backtestEquity: (symbol = "SPY") => get<{ t: string; equity: number }[]>(`/backtest/equity?symbol=${symbol}`),
   portfolio: () => get<Record<string, unknown>>("/portfolio/snapshot"),

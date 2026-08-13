@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -29,9 +30,14 @@ const WACC_ROWS: [string, (w: ValuationDTO["wacc"]) => string | number][] = [
 ];
 
 export default function ValuationPage() {
-  const [symbol, setSymbol] = useState("AAPL");
+  const { symbol: routeSymbol } = useParams();
+  const [symbol, setSymbol] = useState((routeSymbol ?? "AAPL").toUpperCase());
   const [data, setData] = useState<ValuationDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (routeSymbol) setSymbol(routeSymbol.toUpperCase());
+  }, [routeSymbol]);
 
   useEffect(() => {
     let alive = true;

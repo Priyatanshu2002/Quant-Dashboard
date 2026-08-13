@@ -95,7 +95,9 @@ export default function App() {
           <Routes>
             <Route path="/" element={<ScreenerPage />} />
             <Route path="/financials" element={<FinancialsPage />} />
+            <Route path="/financials/:symbol" element={<FinancialsPage />} />
             <Route path="/valuation" element={<ValuationPage />} />
+            <Route path="/valuation/:symbol" element={<ValuationPage />} />
             <Route path="/backtest" element={<BacktestResultsPage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/debate" element={<DebateViewerPage />} />
