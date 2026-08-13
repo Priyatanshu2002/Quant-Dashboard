@@ -499,6 +499,13 @@ def parse_company_facts_series(cik: str, symbol: str, use_cache: bool = True) ->
         da = row.get("depreciation_amortization")
         if ebit is not None:
             row["ebitda"] = (ebit + da) if da is not None else ebit
+        # gross profit fallback when SEC only tags revenue & COGS
+        if row.get("gross_profit") is None and row.get("revenue") is not None \
+                and row.get("cost_of_revenue") is not None:
+            row["gross_profit"] = row["revenue"] - row["cost_of_revenue"]
+    for row in cashflow:
+        if row.get("operating_cash_flow") is not None and row.get("capex") is not None:
+            row["free_cash_flow"] = row["operating_cash_flow"] - abs(row["capex"])
     for row in balance:
         td = _total_debt(row)
         if td is not None:
