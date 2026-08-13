@@ -9,7 +9,8 @@ import pytest
 from core.api_server import _route_financials, _route_sentiment
 from core.db import SQLiteStorage
 from data_ingestion.sentiment_feeds.llm_analyst import (
-    _label_for, _parse_json, analyze_fundamentals, analyze_news_sentiment)
+    _label_for, _parse_json, analyze_fundamentals, analyze_news_sentiment,
+    analyze_statements)
 
 
 @pytest.fixture
@@ -183,3 +184,62 @@ def test_route_sentiment_empty(db):
     assert out["aggregate"]["score"] == 0.0
     assert out["per_source"] == {}
     assert out["series"] == []
+
+
+# ── C7: structured statement analysis (earnings-direction forecast) ──────
+def _seed_statements(db, revs):
+    """Write N quarters of revenue (oldest→newest) + stable margins."""
+    for i, rev in enumerate(revs):
+        period = f"2025-{3 + 3 * i:02d}-28"  # Mar/Jun/Sep/Dec 28, ascending
+        db.write_financial_statements("S", "income", [{
+            "period": period, "total_revenue": rev, "gross_profit": rev * 0.5,
+            "ebitda": rev * 0.3, "net_income": rev * 0.15,
+        }])
+
+
+def test_statements_fallback_insufficient(db, monkeypatch):
+    monkeypatch.setattr("data_ingestion.sentiment_feeds.llm_analyst.llm_available",
+                        lambda: False)
+    verdict = analyze_statements("NOPE", storage=db, db=db, force=True)
+    assert verdict["direction"] == "flat"
+    assert verdict["model"] == "fallback-rule-based"
+    assert verdict["periods_analyzed"] == 0
+
+
+def test_statements_fallback_up_on_growth(db, monkeypatch):
+    monkeypatch.setattr("data_ingestion.sentiment_feeds.llm_analyst.llm_available",
+                        lambda: False)
+    _seed_statements(db, [100.0, 110.0, 125.0, 145.0])  # accelerating revenue
+    verdict = analyze_statements("S", storage=db, db=db, force=True)
+    assert verdict["direction"] == "up"
+    assert verdict["confidence"] > 0
+    assert any("revenue" in d for d in verdict["drivers"])
+    # persisted to llm_analyses
+    stored = db.query_latest_llm_analysis("S", kind="STATEMENTS")
+    assert stored is not None
+    assert stored["verdict"]["direction"] == "up"
+
+
+def test_statements_fallback_down_on_decline(db, monkeypatch):
+    monkeypatch.setattr("data_ingestion.sentiment_feeds.llm_analyst.llm_available",
+                        lambda: False)
+    _seed_statements(db, [145.0, 125.0, 110.0, 100.0])  # declining revenue
+    verdict = analyze_statements("S", storage=db, db=db, force=True)
+    assert verdict["direction"] == "down"
+
+
+def test_statements_llm_path(db, monkeypatch):
+    monkeypatch.setattr("data_ingestion.sentiment_feeds.llm_analyst.llm_available",
+                        lambda: True)
+    _seed_statements(db, [100.0, 120.0])
+    async def fake_llm(system, user, temperature=0.2, max_tokens=1200):
+        return ('{"direction": "up", "confidence": 0.8, '
+                '"narrative": "Strong revenue momentum", "drivers": ["growth"], '
+                '"risks": ["valuation"]}')
+    monkeypatch.setattr("data_ingestion.sentiment_feeds.llm_analyst.call_openrouter_raw",
+                        fake_llm)
+    verdict = analyze_statements("S", storage=db, db=db, force=True)
+    assert verdict["model"] == "deepseek/deepseek-v4-flash-0731"
+    assert verdict["direction"] == "up"
+    assert verdict["confidence"] == pytest.approx(0.8)
+    assert verdict["periods_analyzed"] == 2
