@@ -44,6 +44,7 @@ _US_GAAP_FIELDS = {
     # Operating expenses
     "ResearchAndDevelopmentExpense": ("research_development", 1),
     "SellingGeneralAndAdministrativeExpense": ("selling_general_admin", 1),
+    "SellingAndMarketingExpense": ("selling_general_admin", 1),
     "OperatingIncomeLoss": ("operating_income", 1),       # EBIT
     "DepreciationDepletionAndAmortization": ("depreciation_amortization", 1),
     "DepreciationAmortizationAndAccretionNet": ("depreciation_amortization", 1),
@@ -54,6 +55,7 @@ _US_GAAP_FIELDS = {
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxes": ("pretax_income", 1),
     "IncomeTaxExpenseBenefit": ("income_tax", 1),
     "InterestExpense": ("interest_expense", 1),
+    "InterestExpenseNonoperating": ("interest_expense", 1),
     "NetIncomeLoss": ("net_income", 1),
     "EarningsPerShareDiluted": ("eps_actual", 1),
     "EarningsPerShareBasic": ("eps_basic", 1),
@@ -78,6 +80,7 @@ _US_GAAP_FIELDS = {
     "OperatingLeaseLiability": ("operating_lease", 1),
     "PreferredStockValue": ("preferred_stock", 1),
     "CommonStockSharesOutstanding": ("shares_outstanding", 1),
+    "CommonStockSharesOutstandingIncludingTreasuryShares": ("shares_outstanding", 1),
     # Cash flow
     "NetCashProvidedByUsedInOperatingActivities": ("operating_cash_flow", 1),
     "PaymentsToAcquirePropertyPlantAndEquipment": ("capex", -1),  # negative → flip sign

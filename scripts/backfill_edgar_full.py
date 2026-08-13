@@ -55,12 +55,16 @@ def main() -> None:
             series = parse_company_facts_series(cik, sym)
             n = 0
             for st, rows in series.items():
-                if rows:
-                    db.write_financial_statements(sym, st, rows)
-                    n += len(rows)
+                # Only repopulate ANNUAL (10-K) rows with the full expanded line
+                # items. Quarterly (10-Q) is left to the complete yfinance data so
+                # the Quarterly view is never regressed by sparser SEC tagging.
+                annual = [r for r in rows if r.get("period_type") == "ANNUAL"]
+                if annual:
+                    db.write_financial_statements(sym, st, annual)
+                    n += len(annual)
             total_rows += n
             done += 1
-            log.info("[%d/%d] %s: wrote %d statement rows", i, len(us_equities), sym, n)
+            log.info("[%d/%d] %s: wrote %d annual rows", i, len(us_equities), sym, n)
         except Exception as e:  # noqa: BLE001
             failed += 1
             log.warning("[%d/%d] %s failed: %s", i, len(us_equities), sym, e)
