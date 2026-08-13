@@ -1,63 +1,64 @@
 #!/usr/bin/env python3
-"""Full-universe backfill — every instrument in screener_config.yaml.
+"""Backfill the full screener universe: 5y prices for every instrument, then
+build the labeled feature store. Idempotent — safe to re-run.
 
-  Crypto (6)  → Binance REST (5y daily)
-  Equities/ETF/Bond/FX (27) → yfinance (5y daily)
-  Plus macro series: ^VIX, DX-Y.NYB, GC=F (stored as market data)
-
-Usage: .venv/Scripts/python scripts/backfill_universe.py [--period 5y]
+Usage: .venv/Scripts/python scripts/backfill_universe.py
 """
 from __future__ import annotations
 
-import argparse
-import time
-
 from core.db import get_storage
 from core.logging import get_logger, setup_logging
+from screener.asset_universe import get_universe
 
 log = get_logger(__name__)
 
-CRYPTO = ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD"]
-YFINANCE = [
-    # US equities
-    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM", "XOM", "UNH",
-    # Indian equities
-    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "SBIN.NS",
-    # ETFs
-    "SPY", "QQQ", "IWM", "TLT", "GLD", "EEM",
-    # Bonds / yields
-    "^TNX", "^TYX",
-    # Forex
-    "EURUSD=X", "GBPUSD=X", "USDJPY=X", "USDINR=X",
-    # Macro reference series
-    "^VIX", "DX-Y.NYB", "GC=F",
-]
+CRYPTO_PREFIXES = ("BTC-", "ETH-", "SOL-", "BNB-", "XRP-", "DOGE-", "ADA-", "AVAX-", "LINK-", "LTC-")
 
 
 def main() -> None:
     setup_logging()
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--period", default="5y")
-    ap.add_argument("--skip-crypto", action="store_true")
-    args = ap.parse_args()
-
+    universe = get_universe()
     db = get_storage()
-    t0 = time.time()
+    symbols = universe.symbols()
+    log.info("Backfilling %d symbols across %d classes", len(symbols), len(universe.weights))
 
-    if not args.skip_crypto:
-        from data_ingestion.price_feeds.crypto_ws import backfill_klines
-        for sym in CRYPTO:
-            try:
-                df = backfill_klines(sym, interval="1d", days=1825, storage=db)
-                log.info("crypto %s: %d bars", sym, len(df))
-            except Exception as e:  # noqa: BLE001
-                log.warning("crypto %s failed: %s", sym, e)
+    equities = [s for s in symbols if not s.startswith(CRYPTO_PREFIXES)]
+    crypto = [s for s in symbols if s.startswith(CRYPTO_PREFIXES)]
 
+    # 1) prices
     from data_ingestion.price_feeds.equity_ws import backfill_equities
-    results = backfill_equities(YFINANCE, period=args.period, storage=db)
-    log.info("yfinance: %d/%d symbols backfilled", len(results), len(YFINANCE))
+    results = backfill_equities(equities, period="5y", interval="1d", storage=db)
+    log.info("Backfilled %d equity/ETF/index/FX instruments", len(results))
 
-    log.info("Universe backfill complete in %.0fs", time.time() - t0)
+    if crypto:
+        from data_ingestion.price_feeds.crypto_ws import backfill_klines
+        for c in crypto:
+            try:
+                df = backfill_klines(c, interval="1d", days=1825, storage=db)
+                log.info("Backfilled %d bars for %s", 0 if df is None else len(df), c)
+            except Exception as e:  # noqa: BLE001
+                log.warning("crypto backfill failed %s: %s", c, e)
+
+    # 2) features for non-crypto symbols with enough history
+    from feature_engineering.feature_store import build_feature_frame, write_to_store
+    built = 0
+    for sym in equities:
+        try:
+            ohlcv = db.query_ohlcv(sym)
+            if len(ohlcv) < 250:
+                log.info("skip %s: %d bars (<250)", sym, len(ohlcv))
+                continue
+            asset_class = universe.asset_class_of(sym) or "EQUITY_US"
+            frame = build_feature_frame(sym, asset_class, ohlcv, db=db,
+                                        timeframe="SWING", with_labels=True)
+            if frame is not None and not frame.empty:
+                write_to_store(frame, sym, asset_class, "SWING", db=db)
+                built += 1
+                log.info("features built for %s (%d rows)", sym, len(frame))
+        except Exception as e:  # noqa: BLE001
+            log.warning("feature build failed %s: %s", sym, e)
+
+    log.info("DONE. prices=%d symbols, features=%d symbols", len(results), built)
 
 
 if __name__ == "__main__":

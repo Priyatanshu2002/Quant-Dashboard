@@ -16,7 +16,8 @@ signal_weights:
   FOREX:     {technical: 0.30, fundamental: 0.10, sentiment: 0.20, macro: 0.30, momentum: 0.10}
   FNO:       {technical: 0.35, fundamental: 0.25, sentiment: 0.15, macro: 0.10, momentum: 0.15}
 
-# Asset universe (starter set — expand per plan §2.1)
+# Asset universe — broad multi-asset market (US/IN large caps, sector ETFs,
+# crypto, bonds, FX). Backfill prices + features to screen the full set.
 universe:
   CRYPTO:
     - {symbol: BTC-USD, name: Bitcoin}
@@ -25,7 +26,12 @@ universe:
     - {symbol: BNB-USD, name: BNB}
     - {symbol: XRP-USD, name: XRP}
     - {symbol: DOGE-USD, name: Dogecoin}
+    - {symbol: ADA-USD, name: Cardano}
+    - {symbol: AVAX-USD, name: Avalanche}
+    - {symbol: LINK-USD, name: Chainlink}
+    - {symbol: LTC-USD, name: Litecoin}
   EQUITY_US:
+    # mega-cap technology
     - {symbol: AAPL, name: Apple, sector: Technology}
     - {symbol: MSFT, name: Microsoft, sector: Technology}
     - {symbol: NVDA, name: NVIDIA, sector: Technology}
@@ -33,15 +39,80 @@ universe:
     - {symbol: GOOGL, name: Alphabet, sector: Technology}
     - {symbol: META, name: Meta, sector: Technology}
     - {symbol: TSLA, name: Tesla, sector: Automotive}
-    - {symbol: JPM, name: JPMorgan, sector: Financials}
+    - {symbol: ORCL, name: Oracle, sector: Technology}
+    - {symbol: CRM, name: Salesforce, sector: Technology}
+    - {symbol: ADBE, name: Adobe, sector: Technology}
+    - {symbol: AMD, name: AMD, sector: Technology}
+    - {symbol: AVGO, name: Broadcom, sector: Technology}
+    - {symbol: CSCO, name: Cisco, sector: Technology}
+    - {symbol: IBM, name: IBM, sector: Technology}
+    - {symbol: QCOM, name: Qualcomm, sector: Technology}
+    - {symbol: TXN, name: Texas Instruments, sector: Technology}
+    - {symbol: INTC, name: Intel, sector: Technology}
+    - {symbol: NFLX, name: Netflix, sector: Communication}
+    - {symbol: SHOP, name: Shopify, sector: Technology}
+    # communication
+    - {symbol: DIS, name: Disney, sector: Communication}
+    - {symbol: T, name: AT&T, sector: Communication}
+    - {symbol: VZ, name: Verizon, sector: Communication}
+    - {symbol: CMCSA, name: Comcast, sector: Communication}
+    # consumer
+    - {symbol: HD, name: Home Depot, sector: Consumer}
+    - {symbol: MCD, name: McDonald's, sector: Consumer}
+    - {symbol: NKE, name: Nike, sector: Consumer}
+    - {symbol: SBUX, name: Starbucks, sector: Consumer}
+    - {symbol: LOW, name: Lowe's, sector: Consumer}
+    - {symbol: TGT, name: Target, sector: Consumer}
+    - {symbol: PEP, name: PepsiCo, sector: Staples}
+    - {symbol: KO, name: Coca-Cola, sector: Staples}
+    - {symbol: COST, name: Costco, sector: Staples}
+    - {symbol: WMT, name: Walmart, sector: Staples}
+    - {symbol: PG, name: Procter & Gamble, sector: Staples}
+    # energy
     - {symbol: XOM, name: ExxonMobil, sector: Energy}
+    - {symbol: CVX, name: Chevron, sector: Energy}
+    - {symbol: COP, name: ConocoPhillips, sector: Energy}
+    - {symbol: SLB, name: Schlumberger, sector: Energy}
+    # financials
+    - {symbol: JPM, name: JPMorgan, sector: Financials}
+    - {symbol: BAC, name: Bank of America, sector: Financials}
+    - {symbol: WFC, name: Wells Fargo, sector: Financials}
+    - {symbol: GS, name: Goldman Sachs, sector: Financials}
+    - {symbol: MS, name: Morgan Stanley, sector: Financials}
+    - {symbol: C, name: Citigroup, sector: Financials}
+    - {symbol: V, name: Visa, sector: Financials}
+    - {symbol: MA, name: Mastercard, sector: Financials}
+    - {symbol: AXP, name: American Express, sector: Financials}
+    # healthcare
     - {symbol: UNH, name: UnitedHealth, sector: Healthcare}
+    - {symbol: PFE, name: Pfizer, sector: Healthcare}
+    - {symbol: JNJ, name: Johnson & Johnson, sector: Healthcare}
+    - {symbol: MRK, name: Merck, sector: Healthcare}
+    - {symbol: ABBV, name: AbbVie, sector: Healthcare}
+    - {symbol: LLY, name: Eli Lilly, sector: Healthcare}
+    - {symbol: TMO, name: Thermo Fisher, sector: Healthcare}
+    # industrials / materials / real estate / utilities
+    - {symbol: CAT, name: Caterpillar, sector: Industrials}
+    - {symbol: GE, name: GE Aerospace, sector: Industrials}
+    - {symbol: BA, name: Boeing, sector: Industrials}
+    - {symbol: HON, name: Honeywell, sector: Industrials}
+    - {symbol: UPS, name: UPS, sector: Industrials}
+    - {symbol: LIN, name: Linde, sector: Materials}
+    - {symbol: SHW, name: Sherwin-Williams, sector: Materials}
+    - {symbol: AMT, name: American Tower, sector: Real Estate}
+    - {symbol: NEE, name: NextEra Energy, sector: Utilities}
+    - {symbol: DUK, name: Duke Energy, sector: Utilities}
   EQUITY_IN:
     - {symbol: RELIANCE.NS, name: Reliance Industries, exchange: NSE}
     - {symbol: TCS.NS, name: Tata Consultancy, exchange: NSE}
     - {symbol: HDFCBANK.NS, name: HDFC Bank, exchange: NSE}
     - {symbol: INFY.NS, name: Infosys, exchange: NSE}
     - {symbol: SBIN.NS, name: SBI, exchange: NSE}
+    - {symbol: WIPRO.NS, name: Wipro, exchange: NSE}
+    - {symbol: HINDUNILVR.NS, name: HUL, exchange: NSE}
+    - {symbol: ITC.NS, name: ITC, exchange: NSE}
+    - {symbol: BHARTIARTL.NS, name: Bharti Airtel, exchange: NSE}
+    - {symbol: TATAMOTORS.NS, name: Tata Motors, exchange: NSE}
   ETF:
     - {symbol: SPY, name: S&P 500 ETF}
     - {symbol: QQQ, name: Nasdaq 100 ETF}
@@ -49,11 +120,28 @@ universe:
     - {symbol: TLT, name: 20Y Treasury ETF}
     - {symbol: GLD, name: Gold ETF}
     - {symbol: EEM, name: EM ETF}
+    - {symbol: VOO, name: Vanguard S&P 500}
+    - {symbol: VTI, name: Vanguard Total Market}
+    - {symbol: DIA, name: Dow Jones ETF}
+    - {symbol: SLV, name: Silver ETF}
+    - {symbol: XLK, name: Tech Sector ETF}
+    - {symbol: XLE, name: Energy Sector ETF}
+    - {symbol: XLF, name: Financials Sector ETF}
+    - {symbol: XLV, name: Healthcare Sector ETF}
+    - {symbol: XLY, name: Consumer Disc. ETF}
+    - {symbol: XLU, name: Utilities Sector ETF}
+    - {symbol: ARKK, name: ARK Innovation}
+    - {symbol: IWD, name: Russell 1000 Value}
+    - {symbol: IWF, name: Russell 1000 Growth}
   BOND:
     - {symbol: ^TNX, name: US 10Y Yield, exchange: CBOE}
     - {symbol: ^TYX, name: US 30Y Yield, exchange: CBOE}
+    - {symbol: ^FVX, name: US 5Y Yield, exchange: CBOE}
   FOREX:
     - {symbol: EURUSD=X, name: Euro/USD}
     - {symbol: GBPUSD=X, name: GBP/USD}
     - {symbol: USDJPY=X, name: USD/JPY}
     - {symbol: USDINR=X, name: USD/INR}
+    - {symbol: AUDUSD=X, name: AUD/USD}
+    - {symbol: USDCHF=X, name: USD/CHF}
+    - {symbol: USDCNY=X, name: USD/CNY}
