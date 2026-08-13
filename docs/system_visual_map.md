@@ -242,29 +242,35 @@ orchestrator.py              ← THE BRAIN — runs everything on schedule
 
 ## 7. Completion Status at a Glance
 
+> ⚠️ **Accuracy audit (2026-08-14):** "Done & wired" overstated reality. Several items marked ✅ were proxy-verified or build-only. Corrected below.
+
 ```mermaid
 pie title Project Completion
-    "✅ Done & wired" : 78
-    "⚠️ Code exists, untrained (TFT + PPO)" : 10
-    "❌ Still to build (Neo4j + Qdrant writers, Grafana, Alerts)" : 12
+    "✅ Done & genuinely wired" : 45
+    "🟡 Built but proxy/partial/untrained (TFT + PPO, debate on empty ML signal, backtests on canned strategies only)" : 30
+    "❌ Still to build / gated (Neo4j + Qdrant writers, Grafana runtime, search, lineage, transcripts, regime intake)" : 25
 ```
 
 | Layer | Status | Blocker |
 |---|---|---|
-| Data ingestion (price, fundamental, sentiment, macro) | ✅ | — |
-| Feature engineering (75 features) | ✅ | — |
-| Screener | ✅ | — |
-| LangGraph (all 9 nodes) | ✅ | — |
-| RL Agent (PPO code) | ✅ code / ❌ trained | Needs GPU training |
-| TFT model (code) | ✅ code / ❌ trained | Needs GPU training |
-| Strategy builder (37 models) | ✅ | — |
-| Backtesting engine | ✅ | — |
+| Data ingestion (price, fundamental, sentiment, macro) | ✅ price/SEC/sentiment/yfinance-macro wired | FRED/BLS key-gated; NSE/BSE stub; GDELT/Reddit network-blocked; no lineage |
+| Feature engineering (75 features) | ✅ technical + sentiment live | fundamental/macro features shallow (thin macro path) |
+| Screener | ✅ | composite scoring only — **no regime-first intake** |
+| LangGraph (all 9 nodes) | 🟡 runs real cycles | **TFT signal empty** (untrained → NEUTRAL/0.0); no RAG/citations |
+| RL Agent (PPO code) | 🟡 code / ❌ trained | Needs GPU training |
+| TFT model (code) | 🟡 code / ❌ trained | Needs GPU training |
+| Strategy builder (37 models) | ✅ | benchmark harness only; none trained/validated end-to-end |
+| Backtesting engine | 🟡 engine complete | **only canned strategies run** — has not validated actual system signals |
 | REST API (9 endpoints) | ✅ | — |
-| Orchestrator (daily/weekly/monthly) | ✅ | — |
-| Docker compose (TS + Neo4j + Qdrant) | ✅ | — |
+| Orchestrator (daily/weekly/monthly) | 🟡 scheduled logic only | **not running as a live scheduler**; needs cron/orchestrator process |
+| Docker compose (TS + Neo4j + Qdrant) | ❌ config only | **Docker not installed** → none running locally |
 | **Neo4j writer pipeline** | ❌ | Next sprint |
 | **Qdrant embedding pipeline** | ❌ | Next sprint |
 | **Redis in Docker** | ❌ | Next sprint |
-| **Grafana dashboards** | ❌ | Next sprint |
-| **Alert system (Telegram)** | ❌ | Future |
-| **RunPod API automation** | ❌ | Future |
+| **Grafana dashboards** | ❌ config only, not running | Next sprint |
+| **Full-text/vector search over filings+news+own analyses** | ❌ | Not yet scoped — core research gap |
+| **Data lineage / provenance** | ❌ | Not yet scoped — core credibility gap |
+| **Earnings-call transcript ingestion + LLM sentiment** | ❌ | Phase-2 item, unimplemented |
+| **Macro regime classifier (regime-first intake)** | ❌ | Not yet scoped — reorders the funnel |
+| Alert system (Telegram) | ❌ | Future |
+| RunPod API automation | ❌ | Future |

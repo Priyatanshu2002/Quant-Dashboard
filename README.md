@@ -65,15 +65,17 @@ agonistes smoke
 
 ## Status vs plan
 
-| Plan phase | Status |
-|---|---|
-| 1 Foundation | ✅ 100% — full-universe backfill (31 symbols, ~67k bars, 5y daily), technical features, feature store (38,235 vectors), screener with **4 live qualified candidates**, macro (VIX 15.3 / US10Y 4.68% / DXY 99.9), news sentiment live |
-| 2 Fundamentals | ✅ (news sentiment = cutoff) — SEC EDGAR 10/10 US equities, DCF, yfinance info 17 tickers, earnings calendar 250 rows, macro via yfinance (keyless), **news sentiment live: 925 events / 21 symbols** (Yahoo News + Google RSS + Yahoo RSS + StockTwits); GDELT/Reddit best-effort (network-blocked here); NSE/BSE watcher stub (SEBI) |
-| 3 Transformer | 🟡 code + configs complete, needs `pip install -e ".[ml]"` + training on the 38k-vector store |
-| 4 LLM Debate | ✅ graph + 9 nodes run real LangGraph cycles on Nous Portal (`deepseek-v4-flash-0731`) |
-| 5 RL Agent | 🟡 env + reward + PPO code, needs `.[rl]` + training |
-| 6 Backtesting | ✅ engine + full cost model + all 10 metrics + walk-forward/regimes/Monte Carlo |
-| 7 UI/Monitoring | ✅ React UI builds; Prometheus/Grafana configs ready |
-| 8 Paper trading | ⬜ Go-Live gated |
+> ⚠️ **Accuracy audit (2026-08-14):** The previous table marked several phases "✅ done" on the strength of a *proxy* (one live data channel) rather than the phase's full checklist. The corrected table below is honest about what is built-and-running vs. stubbed / gated / proxy-verified. See `docs/AUDIT.md` for the full gap analysis and remediation plan.
+
+| Plan phase | Status (corrected) | Reality check |
+|---|---|---|
+| 1 Foundation | 🟡 **partial** — not the "100%" previously claimed | Docker stack (TimescaleDB/Qdrant/Neo4j) **never set up** (Docker not installed); backfill is **31 symbols, not the full universe**; screener + technical features + feature store + macro (3 keyless numbers) run, but there is **no live macro regime layer** and only a 3-series keyless macro path. |
+| 2 Fundamentals | 🟡 **partial** — the "✅ (news sentiment = cutoff)" claim was a proxy | SEC EDGAR parser (10/10 US) + DCF + yfinance info (17 tickers) + earnings calendar run. **Not done from the phase checklist:** earnings-call **transcript LLM sentiment** (no transcript module exists), NSE/BSE watcher is a **stub** (SEBI-blocked), FRED/BLS **key-gated**, GDELT/Reddit **network-blocked** here. No data lineage / provenance on any stored value. |
+| 3 Transformer | 🟡 code + configs complete, **untrained** | Needs `pip install -e ".[ml]"` + training on the 38k-vector store. Correct as marked. |
+| 4 LLM Debate | 🟡 **partial** — "9 nodes run real cycles" is true but overstates readiness | LangGraph graph + 9 nodes execute real cycles on Nous. **However** Node B attaches TFT only *when a trained checkpoint exists* — currently it defaults to `NEUTRAL/0.0`, so debates run on an **empty ML signal**. No RAG, no citations, no persistent research/knowledge retrieval. |
+| 5 RL Agent | 🟡 env + reward + PPO code, **untrained** | Needs `.[rl]` + training. Correct as marked. |
+| 6 Backtesting | 🟡 **partial** — engine complete, but has only run hand-written strategies | Engine + cost model + 10 metrics + walk-forward/regimes/Monte Carlo exist. **Has not validated the system's actual signals** (untrained TFT/RL, debate outputs) — only canned strategies (`ma_cross`, `shuffled`, …). |
+| 7 UI/Monitoring | 🟡 **partial** — React UI builds, monitoring is config-only | React UI builds; **Grafana dashboards are pending, Prometheus/Grafana are not actually running**; UI is a dashboard, not a research/analysis workbench (no search, no report export). |
+| 8 Paper trading | ⬜ Go-Live gated | Correct as marked. |
 
 **Tests:** 70 pytest cases green (`python -m pytest tests/ -q`).

@@ -1491,23 +1491,30 @@ services:
 <a id="section-12"></a>
 ## SECTION 12: Implementation Roadmap
 
+> ⚠️ **Accuracy audit (2026-08-14):** Some phases were previously reported "done" on the strength of a proxy (one live data channel) rather than the full checklist. The checkboxes below are the honest scope; see `docs/AUDIT.md` (issues I1–I9 + remediation R1–R7) for what is genuinely built-and-running vs. stubbed/gated/proxy-verified. **A phase is not done until its full checklist is real or its scope is renamed.**
+
 ### Phase 1 — Foundation (Weeks 1–4)
-- [ ] Set up Docker stack: TimescaleDB + Qdrant + Neo4j
-- [ ] Build crypto WebSocket data feeds (Binance, Coinbase)
-- [ ] Build yfinance equity price feed
-- [ ] Implement technical feature engineering pipeline
-- [ ] Build feature store writer → TimescaleDB
-- [ ] Basic screener: technical + yfinance fundamentals scoring
-- [ ] `.env` setup + OpenRouter API key verification
+- [x] Build crypto WebSocket data feeds (Binance, Coinbase)
+- [x] Build yfinance equity price feed
+- [x] Implement technical feature engineering pipeline
+- [x] Build feature store writer → storage
+- [x] Basic screener: technical + yfinance fundamentals scoring
+- [x] `.env` setup + LLM API key verification
+- [ ] ~~Set up Docker stack: TimescaleDB + Qdrant + Neo4j~~ **Deferred — Docker not installed** (infra decision needed)
+- [ ] (added) Full-universe backfill — currently only 31 symbols
+- [ ] (added) **Macro regime classifier** for regime-first intake — see AUDIT I1/I2, R2
 
 ### Phase 2 — Fundamentals Pipeline (Weeks 5–8)
-- [ ] SEC EDGAR XBRL 3-statement parser
-- [ ] NSE/BSE filing event watcher + parser
-- [ ] DCF calculator
-- [ ] `fundamental_snapshots` TimescaleDB table — backfill 5 years
-- [ ] Earnings call transcript LLM sentiment scoring (OpenRouter)
-- [ ] FRED + macro feed ingestion
-- [ ] Fundamental feature engineering pipeline
+- [x] SEC EDGAR XBRL 3-statement parser (maximised)
+- [x] DCF calculator
+- [x] `fundamental_snapshots` storage — backfill
+- [x] yfinance profile + annual/quarterly statements + analyst consensus
+- [x] News sentiment ingestion (live)
+- [ ] NSE/BSE filing event watcher + parser — **stub only (SEBI-blocked)**
+- [ ] Earnings call transcript LLM sentiment scoring — **no transcript module exists** (see AUDIT I5, R6)
+- [ ] FRED + macro feed ingestion — **key-gated**, only keyless 3-series path live (see AUDIT I2)
+- [ ] Fundamental feature engineering pipeline — **partial** (thin macro/fundamental feature path)
+- [ ] (added) **Data lineage / provenance** on stored values — see AUDIT I3, R1
 
 ### Phase 3 — Transformer Model (Weeks 9–12)
 - [ ] Backfill 5 years of labeled feature vectors (add future_return targets)
