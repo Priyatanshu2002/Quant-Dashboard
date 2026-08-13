@@ -116,6 +116,7 @@ export interface FinancialsDTO {
       grid: (number | null)[][];
     };
   } | null;
+  cfa?: ValuationDTO | null; // CFA-standard 3-statement + DCF model (authoritative)
   statements: { income: StatementRow[]; balance: StatementRow[]; cashflow: StatementRow[] };
   ratios: { period: string; income: Record<string, unknown>; balance: Record<string, unknown>; cashflow: Record<string, unknown> }[];
   price_change_pct: number | null;

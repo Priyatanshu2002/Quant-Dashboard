@@ -37,6 +37,7 @@ def _route_financials(db, qs: dict) -> dict:
     symbol = _q(qs, "symbol", "AAPL").upper()
 
     from data_ingestion.fundamental_feeds.dcf_scenarios import dcf_bundle
+    from valuation.cfa_model import build_model
 
     snap = db.query_latest_fundamentals(symbol) or {}
     if snap:
@@ -80,6 +81,7 @@ def _route_financials(db, qs: dict) -> dict:
         "profile": db.get_company_profile(symbol),
         "snapshot": snap or None,
         "dcf": dcf_bundle(snap) if snap else None,
+        "cfa": build_model(db, symbol),  # CFA-standard 3-statement + DCF model
         "statements": statements,
         "ratios": ratio_series,
         "price_change_pct": price_change,

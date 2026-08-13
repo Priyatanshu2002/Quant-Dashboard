@@ -146,6 +146,14 @@ export default function FinancialsPage() {
   const rows = data?.statements?.[tab] ?? [];
   const snap = data?.snapshot ?? {};
   const dcf = data?.dcf;
+  const cfa = data?.cfa; // CFA-standard model (authoritative) — prefer over snapshot quick-DCF
+  const dInt = cfa?.dcf?.intrinsic_value_per_share ?? dcf?.intrinsic_value_per_share;
+  const dMos = cfa?.dcf?.margin_of_safety ?? dcf?.margin_of_safety;
+  const dWacc = cfa?.wacc?.wacc ?? dcf?.wacc;
+  const dTg = cfa?.dcf?.terminal_growth ?? dcf?.terminal_growth;
+  const dPvFcf = cfa?.dcf?.pv_of_projected_fcf ?? dcf?.pv_of_projected_fcf;
+  const dPvTv = cfa?.dcf?.pv_of_terminal_value ?? dcf?.pv_of_terminal_value;
+  const dBaseFcff = cfa?.dcf?.base_fcff ?? dcf?.inputs?.ttm_free_cash_flow;
   const fund = data?.llm_analyses?.fundamental?.verdict;
   const newsLLM = data?.llm_analyses?.news?.verdict;
 
@@ -182,7 +190,7 @@ export default function FinancialsPage() {
     [data],
   );
 
-  const sens = dcf?.sensitivity;
+  const sens = cfa?.sensitivity ?? dcf?.sensitivity;
   const sensRows = sens?.grid.map((row, i) => ({
     wacc: `${(sens.waccs[i] * 100).toFixed(0)}%`,
     cells: row.map((v, j) => ({ v, tg: sens.terminal_growths[j] })),
@@ -242,10 +250,10 @@ export default function FinancialsPage() {
         <Stat label="Fwd P/E" value={`${fmtNum(snap.forward_pe, 1)}x`} foot={snap.peg_ratio != null ? `PEG ${fmtNum(snap.peg_ratio, 2)}` : undefined} />
         <Stat label="EV/EBITDA" value={`${fmtNum(snap.ev_to_ebitda, 1)}x`} foot="Enterprise multiple" />
         <Stat label="DCF Intrinsic" value={
-          <span style={{ color: dcf?.intrinsic_value_per_share != null ? sentiColor((dcf.margin_of_safety ?? 0) * 4) : undefined }}>
-            ${fmtNum(dcf?.intrinsic_value_per_share, 2)}
+          <span style={{ color: dInt != null ? sentiColor((dMos ?? 0) * 4) : undefined }}>
+            ${fmtNum(dInt, 2)}
           </span>
-        } foot={dcf?.margin_of_safety != null ? `MoS ${fmtPctSigned(dcf.margin_of_safety)}` : "Run refresh"} />
+        } foot={dMos != null ? `MoS ${fmtPctSigned(dMos)}` : "Run refresh"} />
       </div>
 
       {error && <div className="error-box">⚠ {error} — is the API running on :8000?</div>}
@@ -256,18 +264,22 @@ export default function FinancialsPage() {
         <>
           <div className="grid grid-2">
             {/* DCF panel */}
-            <Panel title="DCF Valuation" hint={`WACC ${dcf?.wacc != null ? (dcf.wacc * 100).toFixed(1) : "—"}% · Terminal g ${dcf?.terminal_growth != null ? (dcf.terminal_growth * 100).toFixed(1) : "—"}%`}>
-              {dcf ? (
+            <Panel title="DCF Valuation" hint={`WACC ${dWacc != null ? (dWacc * 100).toFixed(1) : "—"}% · Terminal g ${dTg != null ? (dTg * 100).toFixed(1) : "—"}%`}>
+              {cfa || dcf ? (
                 <>
-                  <DCFGauge marginOfSafety={dcf.margin_of_safety ?? 0}
-                    intrinsic={dcf.intrinsic_value_per_share} price={snap.current_price as number} />
+                  <DCFGauge marginOfSafety={dMos ?? 0}
+                    intrinsic={dInt} price={snap.current_price as number} />
                   <div className="grid grid-2" style={{ marginTop: 14, gap: 10 }}>
-                    <Stat label="PV Projected FCF" value={fmtUSD(dcf.pv_of_projected_fcf)} sm />
-                    <Stat label="PV Terminal Value" value={fmtUSD(dcf.pv_of_terminal_value)} sm />
-                    <Stat label="TTM FCF" value={fmtUSD(dcf.inputs.ttm_free_cash_flow)} sm />
-                    <Stat label="Rev Growth (input)" value={fmtPct(dcf.inputs.revenue_growth_rate)} sm />
+                    <Stat label="PV Projected FCF" value={fmtUSD(dPvFcf)} sm />
+                    <Stat label="PV Terminal Value" value={fmtUSD(dPvTv)} sm />
+                    <Stat label="TTM FCFF" value={fmtUSD(dBaseFcff)} sm />
+                    <Stat label="Terminal growth" value={fmtPct(dTg)} sm />
                   </div>
-                  <div className="chart-tip">Fading-growth DCF: growth converges to terminal over 10 years (plan §8.2).</div>
+                  <div className="chart-tip">
+                    {cfa
+                      ? "CFA-standard model: FCFF = EBIT(1−T) + D&A − Capex − ΔNWC, discounted at WACC (two-stage, Gordon terminal value)."
+                      : "Snapshot quick-DCF: fading growth converges to terminal over 10 years (plan §8.2)."}
+                  </div>
                 </>
               ) : (
                 <div className="empty-note">No free-cash-flow data for {symbol} — run “Refresh Data” to compute the DCF.</div>
@@ -291,7 +303,7 @@ export default function FinancialsPage() {
                       <tr key={r.wacc}>
                         <td className="mono">{r.wacc}</td>
                         {r.cells.map((c, j) => (
-                          <td key={j} className={`mono ${c.v == null ? "faint" : sensColors[c.v] ?? ""} ${c.tg === dcf?.terminal_growth && r.wacc === `${(dcf.wacc! * 100).toFixed(0)}%` ? "base" : ""}`}>
+                          <td key={j} className={`mono ${c.v == null ? "faint" : sensColors[c.v] ?? ""} ${c.tg === dTg && r.wacc === `${(dWacc! * 100).toFixed(0)}%` ? "base" : ""}`}>
                             {c.v == null ? "—" : `$${c.v.toFixed(2)}`}
                           </td>
                         ))}
