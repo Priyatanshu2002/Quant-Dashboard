@@ -7,7 +7,6 @@ Backfill downloads multi-year daily history in one call.
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Iterable
 
 import pandas as pd

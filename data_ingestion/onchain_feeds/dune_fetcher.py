@@ -10,7 +10,7 @@ import datetime as dt
 import requests
 
 from core.config import DUNE_API_KEY
-from core.db import Storage, get_storage
+from core.db import Storage
 from core.events import EVENT_ONCHAIN, bus
 from core.logging import get_logger
 

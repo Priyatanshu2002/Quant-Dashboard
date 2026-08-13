@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from typing import Iterable
 
 import pandas as pd
 import requests

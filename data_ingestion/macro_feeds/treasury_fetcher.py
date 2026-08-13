@@ -12,7 +12,6 @@ and publishes EVENT_MACRO.
 from __future__ import annotations
 
 import datetime as dt
-import io
 import xml.etree.ElementTree as ET
 
 import pandas as pd

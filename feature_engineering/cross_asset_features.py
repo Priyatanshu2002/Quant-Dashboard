@@ -1,7 +1,6 @@
 """Cross-asset features — BTC dominance trend, sector rotation, correlations."""
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from core.db import Storage, get_storage
