@@ -114,6 +114,7 @@ export default function FinancialsPage() {
   const [symbol, setSymbol] = useState((routeSymbol ?? "AAPL").toUpperCase());
   const [data, setData] = useState<FinancialsDTO | null>(null);
   const [tab, setTab] = useState<Tab>("income");
+  const [viewType, setViewType] = useState<"quarterly" | "annual">("quarterly");
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -143,7 +144,9 @@ export default function FinancialsPage() {
     }
   };
 
-  const rows = data?.statements?.[tab] ?? [];
+  const rows = (viewType === "annual"
+    ? data?.annual_statements?.[tab]
+    : data?.statements?.[tab]) ?? [];
   const snap = data?.snapshot ?? {};
   const dcf = data?.dcf;
   const cfa = data?.cfa; // CFA-standard model (authoritative) — prefer over snapshot quick-DCF
@@ -320,15 +323,25 @@ export default function FinancialsPage() {
 
           {/* 3-statement */}
           <Panel title={`3-Statement History — ${STATEMENT_LABELS[tab]}`}
-            hint={`${rows.length} quarters · latest ${rows[rows.length - 1]?.period ?? "—"}`}
+            hint={`${rows.length} ${viewType === "annual" ? "annual periods" : "quarters"} · latest ${rows[rows.length - 1]?.period ?? "—"}`}
             right={
-              <div className="tabs" style={{ margin: 0, borderBottom: "none" }}>
-                {(Object.keys(STATEMENT_LABELS) as Tab[]).map((t) => (
-                  <button key={t} className={`tab ${tab === t ? "active" : ""}`}
-                    onClick={() => setTab(t)} style={{ padding: "4px 12px" }}>
-                    {STATEMENT_LABELS[t]}
-                  </button>
-                ))}
+              <div className="row" style={{ gap: 8 }}>
+                <div className="tabs" style={{ margin: 0, borderBottom: "none" }}>
+                  {(["quarterly", "annual"] as const).map((vt) => (
+                    <button key={vt} className={`tab ${viewType === vt ? "active" : ""}`}
+                      onClick={() => setViewType(vt)} style={{ padding: "4px 10px" }}>
+                      {vt === "annual" ? "Annual" : "Quarterly"}
+                    </button>
+                  ))}
+                </div>
+                <div className="tabs" style={{ margin: 0, borderBottom: "none" }}>
+                  {(Object.keys(STATEMENT_LABELS) as Tab[]).map((t) => (
+                    <button key={t} className={`tab ${tab === t ? "active" : ""}`}
+                      onClick={() => setTab(t)} style={{ padding: "4px 12px" }}>
+                      {STATEMENT_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
               </div>
             }>
             {rows.length ? (

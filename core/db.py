@@ -112,7 +112,8 @@ class Storage:
                                    rows: Iterable[dict]) -> None: ...
     def query_financial_statements(self, symbol: str,
                                    statement: str | None = None,
-                                   quarters: int = 8) -> list[dict]: ...
+                                   quarters: int = 8,
+                                   period_type: str = "QUARTERLY") -> list[dict]: ...
 
     # ── company profiles ──
     def upsert_company_profile(self, symbol: str, meta: dict) -> None: ...
@@ -484,18 +485,21 @@ class SQLiteStorage(Storage):
 
     def query_financial_statements(self, symbol: str,
                                    statement: str | None = None,
-                                   quarters: int = 8) -> list[dict]:
+                                   quarters: int = 8,
+                                   period_type: str = "QUARTERLY") -> list[dict]:
+        pt = period_type.upper()
         with self._session() as conn:
             if statement:
                 rows = conn.execute(
                     "SELECT period, period_type, data FROM financial_statements "
-                    "WHERE symbol=? AND statement=? ORDER BY period DESC LIMIT ?",
-                    (symbol.upper(), statement, quarters)).fetchall()
+                    "WHERE symbol=? AND statement=? AND period_type=? "
+                    "ORDER BY period DESC LIMIT ?",
+                    (symbol.upper(), statement, pt, quarters)).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT statement, period, period_type, data FROM financial_statements "
-                    "WHERE symbol=? ORDER BY period DESC LIMIT ?",
-                    (symbol.upper(), quarters * 3)).fetchall()
+                    "WHERE symbol=? AND period_type=? ORDER BY period DESC LIMIT ?",
+                    (symbol.upper(), pt, quarters * 3)).fetchall()
         out = []
         for r in rows:
             d = dict(r)
@@ -707,7 +711,6 @@ class TimescaleStorage(Storage):
 
     def query_ohlcv(self, symbol: str, start: Any = None, end: Any = None,
                     interval: str = "1d") -> pd.DataFrame:
-        import psycopg2.extras
         sql = "SELECT time, open, high, low, close, volume FROM market_data WHERE symbol=%s AND interval=%s"
         args: list[Any] = [symbol, interval]
         if start is not None:

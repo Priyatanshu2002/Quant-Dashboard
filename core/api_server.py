@@ -45,13 +45,18 @@ def _route_financials(db, qs: dict) -> dict:
                 if k not in ("raw_data", "filing_url", "transcript_summary")}
         snap["time"] = str(snap.get("time"))
 
-    # 8-quarter statements, oldest → newest
+    # quarterly + annual statements (SEC EDGAR deep history), oldest → newest
     statements: dict[str, list] = {}
+    annual_statements: dict[str, list] = {}
     for name in ("income", "balance", "cashflow"):
-        rows = db.query_financial_statements(symbol, statement=name, quarters=8)
-        rows = [{"period": r["period"], **r["data"]} for r in rows]
-        rows.sort(key=lambda r: r["period"])
-        statements[name] = rows
+        q = db.query_financial_statements(symbol, statement=name, quarters=24, period_type="QUARTERLY")
+        q = [{"period": r["period"], **r["data"]} for r in q]
+        q.sort(key=lambda r: r["period"])
+        statements[name] = q
+        a = db.query_financial_statements(symbol, statement=name, quarters=24, period_type="ANNUAL")
+        a = [{"period": r["period"], **r["data"]} for r in a]
+        a.sort(key=lambda r: r["period"])
+        annual_statements[name] = a
 
     # per-quarter derived ratios (merged view for the trend charts)
     ratios = db.query_financial_statements(symbol, quarters=24)
@@ -83,6 +88,7 @@ def _route_financials(db, qs: dict) -> dict:
         "dcf": dcf_bundle(snap) if snap else None,
         "cfa": build_model(db, symbol),  # CFA-standard 3-statement + DCF model
         "statements": statements,
+        "annual_statements": annual_statements,  # SEC EDGAR multi-year history
         "ratios": ratio_series,
         "price_change_pct": price_change,
         "earnings": earnings,
