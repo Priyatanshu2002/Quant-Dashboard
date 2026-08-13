@@ -97,11 +97,19 @@ def refresh_info_snapshot(ticker: str, storage: Storage | None = None) -> dict |
         "market_cap": info.get("marketCap"),
         "current_price": price,
         "forward_pe": info.get("forwardPE"),
+        "forward_eps": info.get("forwardEps"),
         "peg_ratio": info.get("pegRatio"),
         "ev_to_ebitda": info.get("enterpriseToEbitda"),
         "debt_to_equity": info.get("debtToEquity"),
         "insider_buy_value": info.get("insiderBuyShares") or info.get("insiderPurchases"),
         "insider_sell_value": info.get("insiderSellShares") or info.get("insiderTransactions"),
+        "target_mean_price": info.get("targetMeanPrice"),
+        "target_high_price": info.get("targetHighPrice"),
+        "target_low_price": info.get("targetLowPrice"),
+        "recommendation": info.get("recommendationKey"),
+        "number_of_analysts": info.get("numberOfAnalystOpinions"),
+        "revenue_estimate": (info.get("revenueEstimate") or {}).get("avg")
+        if isinstance(info.get("revenueEstimate"), dict) else None,
     }
     snap = {k: v for k, v in snap.items() if v is not None}
     if snap.get("total_debt") is not None and snap.get("cash_and_equivalents") is not None:
