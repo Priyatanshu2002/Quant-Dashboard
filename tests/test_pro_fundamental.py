@@ -218,3 +218,60 @@ def test_mismatch_check_flags_value_trap():
     m = {"trailing_pe": 8, "price_to_book": 0.8}
     flags = mismatch_check(q, m)
     assert any("value trap" in f["signal"].lower() for f in flags)
+
+
+# ── FCFF projection DCF ───────────────────────────────────────────────
+from valuation.fcff_model import FCFFInputs, fcff_scenarios, fcff_sensitivity, project_fcff
+
+
+def test_fcff_projection_structure():
+    inp = FCFFInputs(revenue=1000, ebit=250, debt=200, cash=50, shares_outstanding=100,
+                     price=10, sales_to_capital=1.5, growth_next=0.05, growth_2_5=0.05)
+    r = project_fcff(inp)
+    assert "error" not in r
+    assert len(r["projection"]) == 10
+    assert r["intrinsic_value_per_share"] is not None
+    assert r["intrinsic_value_per_share"] > 0
+    # Equity bridge ties out
+    b = r["equity_bridge"]
+    assert b["equity_value"] == pytest.approx(b["operating_assets"] - b["debt"]
+                                              + b["cash"] - b["minority_interest"] - b["preferred_stock"] - b["options_value"])
+    assert r["intrinsic_value_per_share"] == pytest.approx(b["equity_value"] / 100, rel=1e-2)
+    assert r["terminal_value"] > 0
+    assert r["pv_of_terminal_value"] > 0
+
+
+def test_fcff_reproduces_reference_template():
+    # Almarai (Damodaran fcffsimple) → expected value/share ≈ 7.19, hugely below price
+    inp = FCFFInputs(
+        revenue=21765.4, ebit=3060.9, tax_rate=0.175, marginal_tax_rate=0.25,
+        invested_capital=36730.8, sales_to_capital=1.7085,
+        debt=45063, cash=19000, non_operating_assets=21119, minority_interest=1558,
+        shares_outstanding=4315, price=72.28, riskfree=0.0458,
+        initial_wacc=0.07055, stable_wacc=0.0881, stable_growth=0.0458, stable_roc=0.0881,
+        growth_next=0.05, growth_2_5=0.05, target_margin=0.140631,
+    )
+    r = project_fcff(inp)
+    assert r["intrinsic_value_per_share"] == pytest.approx(7.19, abs=0.5)
+    assert r["margin_of_safety"] < 0            # extremely overvalued
+
+
+def test_fcff_scenarios_ordering():
+    inp = FCFFInputs(revenue=1000, ebit=250, debt=200, cash=50, shares_outstanding=100,
+                     price=10, sales_to_capital=1.5, growth_next=0.05, growth_2_5=0.05)
+    sc = fcff_scenarios(inp)
+    assert sc["bull"]["intrinsic_value_per_share"] > sc["base"]["intrinsic_value_per_share"]
+    assert sc["bear"]["intrinsic_value_per_share"] < sc["base"]["intrinsic_value_per_share"]
+
+
+def test_fcff_sensitivity_shape():
+    inp = FCFFInputs(revenue=1000, ebit=250, debt=200, cash=50, shares_outstanding=100,
+                     price=10, sales_to_capital=1.5)
+    s = fcff_sensitivity(inp)
+    assert len(s["waccs"]) == 5 and len(s["growths"]) == 5
+    assert len(s["grid"]) == 5 and all(len(row) == 5 for row in s["grid"])
+    # higher WACC → lower value
+    for col in range(5):
+        vals = [s["grid"][r][col] for r in range(5)]
+        for a, b in zip(vals, vals[1:]):
+            assert b <= a
