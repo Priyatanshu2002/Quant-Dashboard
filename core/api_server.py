@@ -247,7 +247,24 @@ def _route_screener_market(db) -> dict:
 
 
 _MARKET_CACHE: dict = {}
-_MARKET_TTL = 300  # seconds
+_MARKET_TTL = 900  # seconds (15 min)
+
+
+def _warm_market_cache() -> None:
+    """Pre-score the full universe in a background thread so the first UI load
+    is instant instead of a ~40s cold scoring pass."""
+    import threading
+    import time
+
+    def _warm() -> None:
+        time.sleep(3)
+        try:
+            from core.db import get_storage
+            _route_screener_market(get_storage())
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 def _route_screener_top(db, qs: dict) -> dict | list:
@@ -521,6 +538,7 @@ class AgonistesHandler(BaseHTTPRequestHandler):
 def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
     server = ThreadingHTTPServer((host, port), AgonistesHandler)
     log.info("Agonistes API on http://%s:%d (UI: npm run dev on :3001)", host, port)
+    _warm_market_cache()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

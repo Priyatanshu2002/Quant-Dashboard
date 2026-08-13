@@ -83,15 +83,16 @@ Root cause of the plan/UI mismatch: `styles.css` (the design system) was written
 The screener no longer requires typing a ticker — the whole market is populated and in front of the user:
 - `GET /api/screener/market`: scores the full universe and joins live OHLCV (price, change %, volume), market cap and profile (name, sector); returns all rows sorted by composite, plus per-signal components.
 - Screener page: full market table — search (symbol/name), asset-class filter, sortable columns, green/red change coloring, composite badges. Click any row → `/financials/:symbol` drill-in (added `:symbol` routes for `/financials` and `/valuation`; Valuation reads the route param).
-- Universe expanded in `screener/screener_config.yaml` from 33 → **~116 instruments**: 10 crypto, ~67 US large-caps across all sectors, 10 Indian equities, 19 sector/index ETFs, 3 bond yields, 7 FX.
+- Universe expanded in `screener/screener_config.yaml` from 33 → **~553 instruments** (~504 US equities = **full S&P 500**, 10 crypto, 10 Indian equities, 19 sector/index ETFs, 3 bond yields, 7 FX). `scripts/expand_universe.py` fetches current S&P 500 constituents from Wikipedia and rewrites the config's EQUITY_US section.
 - `scripts/backfill_universe.py`: 5y price backfill (equities via yfinance, crypto via Binance) + labeled feature-store build for the full universe (idempotent). **Run it after any universe change**, then restart the server (it caches `get_universe()` at startup).
+- Market screener now scores ~550 instruments (~40s cold). The result is **TTL-cached (15 min)** AND **pre-warmed in a background thread at server startup** (`_warm_market_cache()` in `core/api_server.py`), so the first UI load is instant (~50ms) — no cold wait. Re-scoring happens every 15 min in the background.
 
 **To (re)start the API server (serves both API and dashboard on :8000):**
   ```bash
   python main.py serve --port 8000
   ```
   No separate UI server needed — the dashboard is served by the same process.
-  NOTE: scoring ~112 instruments takes ~15s per request. Add server-side caching of `_route_screener_market` if this feels slow.
+  The market screener is TTL-cached (15 min) + pre-warmed at startup, so it loads instantly.
 
 ---
 
