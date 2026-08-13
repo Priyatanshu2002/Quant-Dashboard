@@ -48,6 +48,22 @@ def test_company_profile_roundtrip(db):
     assert prof["sector"] == "Technology"
 
 
+def test_company_profile_depth_meta_roundtrip(db):
+    """C6: segments/executives/news fold into the profile's JSON meta blob."""
+    db.upsert_company_profile("MSFT", {
+        "company_name": "Microsoft Corp.",
+        "segments": [{"name": "Cloud", "revenue": 1000}],
+        "executives": [{"name": "CEO", "title": "Chief Executive Officer"}],
+        "news": [{"title": "MSFT beats", "publisher": "Reuters"}],
+    })
+    prof = db.get_company_profile("MSFT")
+    assert prof["meta"]["segments"][0]["revenue"] == 1000
+    assert prof["meta"]["executives"][0]["title"] == "Chief Executive Officer"
+    assert prof["meta"]["news"][0]["publisher"] == "Reuters"
+    # symbolic keys live in dedicated columns, not duplicated in meta
+    assert "company_name" not in prof["meta"]
+
+
 def test_llm_analysis_roundtrip(db):
     db.upsert_llm_analysis("AAPL", "NEWS", {"score": 0.4, "label": "bullish"}, "m1")
     db.upsert_llm_analysis("AAPL", "FUNDAMENTAL", {"rating": "HOLD"}, "m2")

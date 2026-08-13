@@ -297,9 +297,60 @@ def fetch_company_profile(ticker: str, storage: Storage | None = None) -> dict |
         "symbol": ticker.upper(),
     }
     meta = {k: v for k, v in meta.items() if v is not None}
+    # Depth: segments / executives / recent news (plan C6) — folded into meta.
+    meta.update(_profile_depth(ticker))
     if meta:
         storage.upsert_company_profile(ticker.upper(), meta)
     return meta
+
+
+def _profile_depth(ticker: str) -> dict:
+    """Segments (revenue/operating income by segment), executives, peers,
+    and recent headline news — the max-capture additions for company profiles.
+
+    All best-effort: any failure yields {} so the core profile still persists.
+    """
+    try:
+        t = yf.Ticker(ticker)
+    except Exception as e:  # noqa: BLE001
+        log.debug("profile depth init failed for %s: %s", ticker, e)
+        return {}
+    out: dict = {}
+
+    # Segments (revenue/EBIT by business line) — requires a scrape/cookie
+    # that yfinance may not always return; safe on failure.
+    try:
+        seg = t.segments
+        if seg:
+            out["segments"] = seg
+    except Exception as e:  # noqa: BLE001
+        log.debug("segments failed for %s: %s", ticker, e)
+
+    # Recent headline news (title, publisher, timestamp, link).
+    try:
+        news = t.news
+        if news:
+            out["news"] = [{
+                "title": n.get("title"),
+                "publisher": n.get("publisher"),
+                "provider_publish_time": n.get("providerPublishTime"),
+                "link": n.get("link"),
+            } for n in news[:10]]
+    except Exception as e:  # noqa: BLE001
+        log.debug("news failed for %s: %s", ticker, e)
+
+    # Officers / management from .info (executives are already partly in info).
+    try:
+        info = t.info
+        if info and isinstance(info, dict):
+            for key in ("companyOfficers", "executiveTeam"):
+                if info.get(key):
+                    out["executives"] = info[key]
+                    break
+    except Exception as e:  # noqa: BLE001
+        log.debug("executives failed for %s: %s", ticker, e)
+
+    return out
 
 
 if __name__ == "__main__":

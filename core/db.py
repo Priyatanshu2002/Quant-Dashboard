@@ -270,7 +270,7 @@ CREATE INDEX IF NOT EXISTS idx_fs_stmt ON financial_statements (symbol, statemen
 CREATE TABLE IF NOT EXISTS company_profiles (
     symbol TEXT NOT NULL PRIMARY KEY, company_name TEXT, sector TEXT,
     industry TEXT, country TEXT, currency TEXT, website TEXT,
-    employees INTEGER, updated_at TEXT NOT NULL
+    employees INTEGER, updated_at TEXT NOT NULL, meta TEXT
 );
 
 CREATE TABLE IF NOT EXISTS llm_analyses (
@@ -334,6 +334,7 @@ class SQLiteStorage(Storage):
                 "ig_credit_spread", "wti_price", "brent_price",
             ],
             "market_data": ["dollar_volume"],
+            "company_profiles": ["meta"],
         }
         for table, cols in _ADD_COLUMNS.items():
             try:
@@ -592,23 +593,37 @@ class SQLiteStorage(Storage):
     # ── company profiles ──
     def upsert_company_profile(self, symbol: str, meta: dict) -> None:
         symbol = symbol.upper()
+        # Drop the symbolic keys we store in dedicated columns; keep the rest
+        # (incl. segments/executives/news/descriptions) as a JSON blob.
+        blob = {k: v for k, v in meta.items()
+                if k not in ("company_name", "sector", "industry", "country",
+                             "currency", "website", "employees")}
         with self._session() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO company_profiles "
                 "(symbol, company_name, sector, industry, country, currency, "
-                " website, employees, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " website, employees, updated_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (symbol,
                  meta.get("company_name"), meta.get("sector"),
                  meta.get("industry"), meta.get("country"), meta.get("currency"),
                  meta.get("website"), meta.get("employees"),
-                 _as_naive_utc(_utc_now()).isoformat(sep=" ")))
+                 _as_naive_utc(_utc_now()).isoformat(sep=" "),
+                 json.dumps(blob, default=str) if blob else None))
 
     def get_company_profile(self, symbol: str) -> dict | None:
         with self._session() as conn:
             row = conn.execute(
                 "SELECT * FROM company_profiles WHERE symbol=?",
                 (symbol.upper(),)).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        d = dict(row)
+        if d.get("meta"):
+            try:
+                d["meta"] = json.loads(d["meta"])
+            except (TypeError, json.JSONDecodeError):
+                d["meta"] = {}
+        return d
 
     # ── LLM analyses ──
     def upsert_llm_analysis(self, symbol: str, kind: str, verdict: dict,
