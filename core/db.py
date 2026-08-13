@@ -155,7 +155,8 @@ _SQLITE_DDL = """
 CREATE TABLE IF NOT EXISTS market_data (
     time TEXT NOT NULL, symbol TEXT NOT NULL, asset_class TEXT NOT NULL,
     source TEXT NOT NULL, interval TEXT NOT NULL,
-    open REAL, high REAL, low REAL, close REAL, volume REAL, raw TEXT
+    open REAL, high REAL, low REAL, close REAL, volume REAL,
+    dollar_volume REAL, raw TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_md_sym ON market_data (symbol, interval, time);
 
@@ -182,7 +183,16 @@ CREATE INDEX IF NOT EXISTS idx_se_sym ON sentiment_events (symbol, ts);
 CREATE TABLE IF NOT EXISTS macro_snapshots (
     ts TEXT NOT NULL, us_10y_yield REAL, us_2y_yield REAL, fed_funds_rate REAL,
     vix REAL, dxy REAL, gold_pct_change_5d REAL, btc_dominance REAL,
-    crypto_total_mcap_chg_24h REAL, yield_curve_spread REAL
+    crypto_total_mcap_chg_24h REAL, yield_curve_spread REAL,
+    us_1m_yield REAL, us_2m_yield REAL, us_3m_yield REAL, us_6m_yield REAL,
+    us_1y_yield REAL, us_3y_yield REAL, us_5y_yield REAL, us_7y_yield REAL,
+    us_20y_yield REAL, us_30y_yield REAL,
+    us_5y_real_yield REAL, us_7y_real_yield REAL, us_10y_real_yield REAL,
+    us_20y_real_yield REAL, us_30y_real_yield REAL, breakeven_inflation REAL,
+    cpi_all_urban REAL, unemployment_rate REAL, core_cpi REAL, ppi_final REAL,
+    pce_all REAL, nonfarm_payrolls REAL, ism_pmi REAL, m2_supply REAL,
+    t10y2y REAL, t10y_breakeven_ie REAL, hy_credit_spread REAL,
+    ig_credit_spread REAL, wti_price REAL, brent_price REAL
 );
 
 CREATE TABLE IF NOT EXISTS earnings_calendar (
@@ -295,6 +305,37 @@ class SQLiteStorage(Storage):
                                     if c not in ("transcript_summary", "filing_url", "raw_data"))
                             + ", transcript_summary TEXT, filing_url TEXT, raw_data TEXT",
             ))
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Idempotently add columns introduced after a DB was first created
+        (so an existing data/agonistes_dev.db gains new macro/price fields)."""
+        _ADD_COLUMNS = {
+            "macro_snapshots": [
+                "us_1m_yield", "us_2m_yield", "us_3m_yield", "us_6m_yield",
+                "us_1y_yield", "us_3y_yield", "us_5y_yield", "us_7y_yield",
+                "us_20y_yield", "us_30y_yield",
+                "us_5y_real_yield", "us_7y_real_yield", "us_10y_real_yield",
+                "us_20y_real_yield", "us_30y_real_yield", "breakeven_inflation",
+                "cpi_all_urban", "unemployment_rate", "core_cpi", "ppi_final",
+                "pce_all", "nonfarm_payrolls", "ism_pmi", "m2_supply",
+                "t10y2y", "t10y_breakeven_ie", "hy_credit_spread",
+                "ig_credit_spread", "wti_price", "brent_price",
+            ],
+            "market_data": ["dollar_volume"],
+        }
+        for table, cols in _ADD_COLUMNS.items():
+            try:
+                existing = {r["name"] for r in
+                            conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            except sqlite3.OperationalError:
+                continue
+            for c in cols:
+                if c not in existing:
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {c} REAL")
+                    except sqlite3.OperationalError:
+                        pass  # already added concurrently
 
     # ── market data ──
     def write_ohlcv(self, df: pd.DataFrame, symbol: str, asset_class: str,
