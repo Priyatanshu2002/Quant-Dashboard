@@ -1,8 +1,6 @@
 """Screener pipeline — score the universe and emit Top-N (used by CLI + UI)."""
 from __future__ import annotations
 
-import pandas as pd
-
 from core.db import get_storage
 from core.logging import get_logger
 from feature_engineering.fundamental_features import compute_fundamental_features
