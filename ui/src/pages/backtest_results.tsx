@@ -1,79 +1,108 @@
 import { useEffect, useState } from "react";
 import { api, BacktestReportDTO } from "../api/client";
-import PerformanceCharts from "../components/PerformanceCharts";
+import PerformanceCharts, { EquityPoint } from "../components/PerformanceCharts";
+import Panel from "../components/Panel";
+import Stat from "../components/Stat";
+import { fmtPctSigned, fmtUSD } from "../lib/format";
 
 const METRICS: [keyof BacktestReportDTO, string][] = [
-  ["total_return_pct", "Total Return %"],
-  ["cagr", "CAGR %"],
+  ["total_return_pct", "Total Return"],
+  ["cagr", "CAGR"],
   ["sharpe_ratio", "Sharpe"],
   ["sortino_ratio", "Sortino"],
   ["calmar_ratio", "Calmar"],
   ["information_ratio", "Info Ratio"],
-  ["max_drawdown_pct", "Max DD %"],
+  ["max_drawdown_pct", "Max Drawdown"],
   ["win_rate", "Win Rate"],
   ["profit_factor", "Profit Factor"],
-  ["expectancy_per_trade_usd", "Expectancy $"],
-  ["cost_drag_pct", "Cost Drag %"],
-  ["alpha_vs_sp500", "Alpha vs SP500 %"],
+  ["expectancy_per_trade_usd", "Expectancy"],
+  ["cost_drag_pct", "Cost Drag"],
+  ["alpha_vs_sp500", "Alpha vs SP500"],
 ];
+
+const PCT_KEYS = new Set(["total_return_pct", "cagr", "max_drawdown_pct", "win_rate", "cost_drag_pct", "alpha_vs_sp500"]);
+
+function fmtMetric(key: keyof BacktestReportDTO, v: number): string {
+  const isPct = PCT_KEYS.has(key as string);
+  if (key === "expectancy_per_trade_usd") return fmtUSD(v, 2);
+  return isPct ? fmtPctSigned(v) : v.toFixed(2);
+}
 
 export default function BacktestResultsPage() {
   const [symbol, setSymbol] = useState("SPY");
   const [report, setReport] = useState<BacktestReportDTO | null>(null);
+  const [equity, setEquity] = useState<EquityPoint[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.backtest(symbol).then(setReport).catch(() => setReport(null));
+    setError(null); setReport(null); setEquity([]);
+    api.backtest(symbol)
+      .then(setReport).catch((e) => setError(String((e as Error).message ?? e)));
+    api.backtestEquity(symbol)
+      .then(setEquity).catch(() => setEquity([]));
   }, [symbol]);
 
   return (
-    <section>
-      <h2>Backtest Results</h2>
-      <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} />
+    <div className="stack">
+      <div className="page-head">
+        <div className="title">
+          <h2>Backtest Engine</h2>
+          <p>Strategy validation with full market-friction cost model · MA-cross on {symbol}</p>
+        </div>
+        <div className="toolbar">
+          <input className="input" value={symbol}
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === "Enter" && setSymbol((e.target as HTMLInputElement).value.toUpperCase())}
+            style={{ width: 110 }} placeholder="SYMBOL" />
+        </div>
+      </div>
+
+      {error && <div className="error-box">⚠ {error}</div>}
+      {!report && !error && <div className="loading">Running backtest on {symbol}…</div>}
+
       {report && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, margin: "12px 0" }}>
+          <div className="kpi-grid">
             {METRICS.map(([key, label]) => (
-              <div key={key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 8 }}>
-                <div style={{ fontSize: 11, color: "#777" }}>{label}</div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>
-                  {typeof report[key] === "number"
-                    ? (report[key] as number).toFixed(2)
-                    : JSON.stringify(report[key])}
-                </div>
-              </div>
+              <Stat key={key} label={label}
+                value={<span className={PCT_KEYS.has(key as string) && (report[key] as number) < 0 ? "down" : "up"}>{fmtMetric(key, report[key] as number)}</span>} />
             ))}
           </div>
-          <PerformanceCharts />
+
+          <Panel title="Performance" hint={`${report.period_start ?? ""} → ${report.period_end ?? ""} · regime: ${report.regime ?? "—"}`}>
+            <PerformanceCharts points={equity} />
+          </Panel>
+
           {Object.keys(report.performance_by_regime || {}).length > 0 && (
-            <>
-              <h3>Performance by Regime (Sharpe)</h3>
-              <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                <tbody>
-                  {Object.entries(report.performance_by_regime).map(([regime, sharpe]) => (
-                    <tr key={regime} style={{ borderBottom: "1px solid #eee" }}>
-                      <td style={{ padding: "4px 8px" }}>{regime}</td>
-                      <td style={{ padding: "4px 8px", width: 420 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div
-                            style={{
-                              width: `${Math.min(100, Math.abs(Number(sharpe)) * 40)}%`,
-                              maxWidth: 300,
-                              height: 12,
-                              borderRadius: 4,
-                              background: Number(sharpe) >= 0 ? "#2e7d32" : "#c62828",
-                            }}
-                          />
-                          <b>{Number(sharpe).toFixed(2)}</b>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+            <Panel title="Performance by Regime" hint="Sharpe ratio">
+              <div className="table-wrap">
+                <table className="table">
+                  <thead><tr><th>Regime</th><th>Sharpe</th><th>Distribution</th></tr></thead>
+                  <tbody>
+                    {Object.entries(report.performance_by_regime).map(([regime, sharpe]) => {
+                      const n = Number(sharpe);
+                      return (
+                        <tr key={regime}>
+                          <td className="muted">{regime}</td>
+                          <td className="mono">{n.toFixed(2)}</td>
+                          <td>
+                            <div className="btrack" style={{ height: 10, width: 220 }}>
+                              <div className="bfill" style={{
+                                width: `${Math.min(100, Math.abs(n) * 40)}%`,
+                                background: n >= 0 ? "var(--green)" : "var(--red)",
+                              }} />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
           )}
         </>
       )}
-    </section>
+    </div>
   );
 }

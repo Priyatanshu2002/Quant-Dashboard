@@ -188,6 +188,91 @@ def _route_refresh_sentiment(db, qs: dict) -> dict:
             "llm": verdict}
 
 
+def _route_monitoring(db) -> dict:
+    """System health: storage backend, table coverage, DB size, containerized
+    services, and feed status (plan §11 Monitoring)."""
+    from pathlib import Path
+
+    # Feed status = whether a meaningful amount of data exists for each source.
+    FEEDS = [
+        ("prices", "Market prices", "market_data"),
+        ("features", "Feature vectors", "feature_vectors"),
+        ("fundamentals", "Fundamental snapshots", "fundamental_snapshots"),
+        ("statements", "3-statement history", "financial_statements"),
+        ("profiles", "Company profiles", "company_profiles"),
+        ("sentiment", "News / sentiment", "sentiment_events"),
+        ("llm_analyses", "LLM analyst verdicts", "llm_analyses"),
+        ("earnings", "Earnings calendar", "earnings_results"),
+        ("macro", "Macro indicators", "macro_snapshots"),
+        ("debate", "Gating / debate log", "gating_log"),
+        ("portfolio", "Portfolio snapshots", "portfolio_snapshot"),
+    ]
+
+    counts: dict[str, int] = {}
+    if db.backend == "sqlite":
+        import sqlite3
+        try:
+            with db._conn() as conn:
+                for _, _, table in FEEDS:
+                    try:
+                        row = conn.execute(
+                            f"SELECT COUNT(*) FROM {table}").fetchone()
+                        counts[table] = int(row[0]) if row else 0
+                    except sqlite3.OperationalError:
+                        counts[table] = 0
+        except Exception:  # noqa: BLE001
+            pass
+
+    feeds = []
+    for key, label, table in FEEDS:
+        n = counts.get(table, 0)
+        status = "ok" if n > 0 else ("empty" if table in counts else "missing")
+        feeds.append({"key": key, "label": label, "table": table,
+                      "count": n, "status": status})
+
+    # DB file size
+    db_size_mb = None
+    db_path = None
+    try:
+        import core.db as dbmod
+        p = getattr(dbmod, "DB_PATH", None) or getattr(db, "path", None)
+        if p and Path(str(p)).exists():
+            db_path = str(p)
+            db_size_mb = round(Path(str(p)).stat().st_size / (1024 * 1024), 1)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Containerized services (not running — no Docker on this machine)
+    services = [
+        {"name": "TimescaleDB", "port": 5432, "running": False},
+        {"name": "Qdrant", "port": 6333, "running": False},
+        {"name": "Neo4j", "port": 7687, "running": False},
+        {"name": "Redis", "port": 6379, "running": False},
+        {"name": "Prometheus", "port": 9090, "running": False},
+        {"name": "Grafana", "port": 3000, "running": False},
+    ]
+    import socket
+    for s in services:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.3)
+        try:
+            s["running"] = sock.connect_ex(("127.0.0.1", s["port"])) == 0
+        except Exception:  # noqa: BLE001
+            s["running"] = False
+        finally:
+            sock.close()
+
+    return {
+        "backend": db.backend,
+        "db_path": db_path,
+        "db_size_mb": db_size_mb,
+        "feeds": feeds,
+        "services": services,
+        "llm_spend": None,
+        "note": "Neo4j/Qdrant/Timescale require Docker (`docker compose up -d`).",
+    }
+
+
 class AgonistesHandler(BaseHTTPRequestHandler):
     def _send(self, payload, status: int = 200) -> None:
         body = json.dumps(payload, default=str).encode()
@@ -272,6 +357,9 @@ class AgonistesHandler(BaseHTTPRequestHandler):
                         (limit,)).fetchall()
                 return [dict(r) for r in rows]
             return []
+
+        if path == "/api/monitoring":
+            return _route_monitoring(db)
 
         if method == "POST":
             if path == "/api/fundamentals/refresh":

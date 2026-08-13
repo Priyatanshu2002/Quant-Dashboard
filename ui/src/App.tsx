@@ -1,52 +1,108 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Activity, Briefcase, Gauge, LineChart, MessageSquare, MonitorCog, Scale, Zap,
+} from "lucide-react";
 import ScreenerPage from "./pages/screener";
 import FinancialsPage from "./pages/financials";
+import ValuationPage from "./pages/valuation";
 import BacktestResultsPage from "./pages/backtest_results";
 import PortfolioPage from "./pages/portfolio";
 import DebateViewerPage from "./pages/debate_viewer";
-import ValuationPage from "./pages/valuation";
+import MonitoringPage from "./pages/monitoring";
 
-const NAV = [
-  { to: "/", label: "Screener", end: true },
-  { to: "/financials", label: "Financials" },
-  { to: "/valuation", label: "Valuation" },
-  { to: "/backtest", label: "Backtests" },
-  { to: "/portfolio", label: "Portfolio" },
-  { to: "/debate", label: "Debate" },
+interface NavEntry { to: string; label: string; icon: React.ElementType; end?: boolean; }
+const NAV: { group: string; items: NavEntry[] }[] = [
+  {
+    group: "Analytics",
+    items: [
+      { to: "/", label: "Screener", icon: Gauge, end: true },
+      { to: "/financials", label: "Financials", icon: LineChart },
+      { to: "/valuation", label: "Valuation", icon: Scale },
+    ],
+  },
+  {
+    group: "Engine",
+    items: [
+      { to: "/backtest", label: "Backtests", icon: Activity },
+      { to: "/portfolio", label: "Portfolio", icon: Briefcase },
+      { to: "/debate", label: "Debate", icon: MessageSquare },
+    ],
+  },
+  {
+    group: "Operations",
+    items: [
+      { to: "/monitoring", label: "Monitoring", icon: MonitorCog },
+    ],
+  },
 ];
 
+const TITLES: Record<string, string> = {
+  "/": "Screener", "/financials": "Fundamentals", "/valuation": "Valuation",
+  "/backtest": "Backtest Engine", "/portfolio": "Portfolio", "/debate": "LangGraph Debate",
+  "/monitoring": "System Monitoring",
+};
+
 export default function App() {
+  const { pathname } = useLocation();
+  const title = TITLES[pathname] ?? "Agonistes";
+
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 1100, margin: "0 auto", padding: 16 }}>
-      <header style={{ display: "flex", alignItems: "center", gap: 24, borderBottom: "1px solid #ddd", paddingBottom: 12 }}>
-        <h1 style={{ fontSize: 18, margin: 0 }}>⚔️ Agonistes</h1>
-        <nav style={{ display: "flex", gap: 12 }}>
-          {NAV.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.end}
-              style={({ isActive }) => ({
-                textDecoration: "none",
-                fontWeight: isActive ? 700 : 400,
-                color: isActive ? "#1a5cff" : "#333",
-              })}
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
-      </header>
-      <main style={{ paddingTop: 16 }}>
-        <Routes>
-          <Route path="/" element={<ScreenerPage />} />
-          <Route path="/financials" element={<FinancialsPage />} />
-          <Route path="/valuation" element={<ValuationPage />} />
-          <Route path="/backtest" element={<BacktestResultsPage />} />
-          <Route path="/portfolio" element={<PortfolioPage />} />
-          <Route path="/debate" element={<DebateViewerPage />} />
-        </Routes>
-      </main>
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="logo"><Zap size={18} /></div>
+          <div>
+            <div className="title">Agonistes</div>
+            <div className="sub">Quant OS</div>
+          </div>
+        </div>
+
+        {NAV.map((g) => (
+          <div key={g.group}>
+            <div className="nav-group">{g.group}</div>
+            {g.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                >
+                  <Icon />
+                  <span>{item.label}</span>
+                </NavLink>
+              );
+            })}
+          </div>
+        ))}
+
+        <div className="sidebar-foot">
+          <div className="status"><span className="dot green" /> Systems nominal</div>
+          <div className="status"><span className="dot gray" /> SQLite · dev</div>
+        </div>
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
+          <h1>{title}</h1>
+          <span className="crumb">Project Agonistes · autonomous quant trading system</span>
+          <div className="right">
+            <span className="status"><span className="dot green" /> Live</span>
+          </div>
+        </header>
+        <main className="content">
+          <Routes>
+            <Route path="/" element={<ScreenerPage />} />
+            <Route path="/financials" element={<FinancialsPage />} />
+            <Route path="/valuation" element={<ValuationPage />} />
+            <Route path="/backtest" element={<BacktestResultsPage />} />
+            <Route path="/portfolio" element={<PortfolioPage />} />
+            <Route path="/debate" element={<DebateViewerPage />} />
+            <Route path="/monitoring" element={<MonitoringPage />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }

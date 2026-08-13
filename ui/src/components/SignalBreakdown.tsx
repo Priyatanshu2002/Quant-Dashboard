@@ -8,17 +8,19 @@ const LABELS: [keyof Omit<ScreenerRow, "symbol" | "asset_class" | "composite">, 
   ["momentum", "Momentum"],
 ];
 
+const COLORS = ["var(--accent)", "var(--purple)", "var(--cyan)", "var(--amber)", "var(--green)"];
+
 /** Horizontal bar chart: how each signal category contributed to the composite. */
 export default function SignalBreakdown({ row }: { row: ScreenerRow }) {
   return (
-    <div>
-      {LABELS.map(([key, label]) => (
-        <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-          <span style={{ width: 86, fontSize: 11, color: "#555" }}>{label}</span>
-          <div style={{ flex: 1, background: "#eee", borderRadius: 3, height: 10 }}>
-            <div style={{ width: `${row[key]}%`, background: "#1a5cff", height: 10, borderRadius: 3 }} />
+    <div style={{ minWidth: 240 }}>
+      {LABELS.map(([key, label], i) => (
+        <div key={key} className="bar-row" style={{ gridTemplateColumns: "96px 1fr 34px", margin: "7px 0" }}>
+          <span className="bname">{label}</span>
+          <div className="btrack">
+            <div className="bfill" style={{ width: `${Math.min(100, row[key])}%`, background: COLORS[i % COLORS.length] }} />
           </div>
-          <span style={{ width: 34, fontSize: 11 }}>{row[key].toFixed(0)}</span>
+          <span className="bval">{row[key].toFixed(0)}</span>
         </div>
       ))}
     </div>

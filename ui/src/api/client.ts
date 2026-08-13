@@ -235,14 +235,39 @@ export interface ValuationDTO {
   assumptions: Record<string, unknown>;
 }
 
+// ── Monitoring (/api/monitoring) ────────────────────────────────────
+export interface FeedStatus {
+  key: string;
+  label: string;
+  table: string;
+  count: number;
+  status: "ok" | "empty" | "missing";
+}
+export interface ServiceStatus {
+  name: string;
+  port: number;
+  running: boolean;
+}
+export interface MonitoringDTO {
+  backend: string;
+  db_path: string | null;
+  db_size_mb: number | null;
+  feeds: FeedStatus[];
+  services: ServiceStatus[];
+  llm_spend: number | null;
+  note: string | null;
+}
+
 export const api = {
   screener: () => get<ScreenerRow[]>("/screener/top"),
   backtest: (symbol = "SPY") => get<BacktestReportDTO>(`/backtest/report?symbol=${symbol}`),
+  backtestEquity: (symbol = "SPY") => get<{ t: string; equity: number }[]>(`/backtest/equity?symbol=${symbol}`),
   portfolio: () => get<Record<string, unknown>>("/portfolio/snapshot"),
   financials: (symbol = "AAPL") => get<FinancialsDTO>(`/financials?symbol=${symbol}`),
   sentiment: (symbol = "AAPL", hours = 72) =>
     get<SentimentDTO>(`/sentiment?symbol=${symbol}&hours=${hours}`),
   debate: (limit = 10) => get<Record<string, unknown>[]>(`/debate/recent?limit=${limit}`),
+  monitoring: () => get<MonitoringDTO>("/monitoring"),
   valuation: (symbol = "AAPL") => get<ValuationDTO>(`/model?symbol=${symbol}`),
   refreshFundamentals: (symbol = "AAPL") => post<Record<string, unknown>>(`/fundamentals/refresh?symbol=${symbol}`),
   refreshSentiment: (symbol = "AAPL") => post<Record<string, unknown>>(`/sentiment/refresh?symbol=${symbol}`),
