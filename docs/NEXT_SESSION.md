@@ -46,7 +46,20 @@ Reference: `implementation_plan_v2.md` (project root) and `docs/system_visual_ma
 Verified at HTTP layer: `/api/model?symbol=AAPL` returns a coherent model (WACC 8.63%, intrinsic $200.2 vs price $302.25, margin −33.8%); `/model` serves `viewer.html` byte-identical (8481 B, `text/html`). `ruff` + `py_compile` clean; 121 tests pass.
 
 **REMAINING ACTION:**
-1. **Browser visual verification still blocked** — the browser daemon is not connected (calls return empty). The Hermes config has `allow_private_urls: true`, but the daemon needs a restart to reload it. After restarting the browser daemon / Hermes session, load `http://127.0.0.1:8000/model` in the browser tool to visually confirm the render (the data contract and serving are already validated).
+1. **Browser visual verification — DONE.** The browser tool is fixed and the `/model` viewer is visually confirmed rendering correctly.
+
+**Browser setup (how it was fixed):**
+- Root cause was NOT `allow_private_urls` — it was that attaching to the user's running Chrome required an interactive "Allow remote debugging" click, and the daemon had 0 active browser connections (`browser-use --doctor`).
+- Fix: a dedicated **headless Chrome** runs on CDP port `9222`, and Hermes is configured to route `browser_exec` through it via `browser.cdp_url: http://127.0.0.1:9222` (set with `hermes config set browser.cdp_url "http://127.0.0.1:9222"`). No popup needed.
+- **To (re)start the headless Chrome if it's not running:**
+  ```bash
+  "/c/Program Files/Google/Chrome/Application/chrome.exe" \
+    --headless=new --remote-debugging-port=9222 \
+    --user-data-dir="$LOCALAPPDATA/hermes/cache/browser-use/chrome-cdp" \
+    --no-first-run --no-default-browser-check --disable-gpu about:blank
+  ```
+  Verify: `curl -s http://127.0.0.1:9222/json/version` returns `webSocketDebuggerUrl`.
+- Verified render (AAPL): WACC 8.63%, intrinsic $200 vs price $302 (margin −33.8%), scenarios Base $200/Bull $220/Bear $182, 5×5 sensitivity, 3-statement history, balance equation ✓. Also fixed a viewer bug: WACC weight row rendered `NaN%` — now `98% / 2%` (committed `3bb5ff5`).
 
 ---
 
@@ -108,7 +121,7 @@ curl -X POST "http://127.0.0.1:8000/api/fundamentals/refresh?symbol=MSFT"
 ## 7. Recommended Next Steps (priority order)
 
 1. ~~**Commit + push** the in-progress `valuation/` package and `core/api_server.py`~~ — DONE (`94a1d6e`, pushed; tree clean).
-2. **Restart the browser daemon** so `allow_private_urls: true` takes effect, then visually verify the `/model` viewer renders.
+2. ~~**Restart the browser daemon** so `allow_private_urls: true` takes effect, then visually verify the `/model` viewer renders~~ — DONE. Browser fixed via headless Chrome on CDP `:9222` + `browser.cdp_url`; viewer verified (see §3). Ensure the headless Chrome is running (command in §3) before using `browser_exec`.
 3. When the user supplies **FRED/BLS/Dune keys**, add them to `.env` and verify FRED/BLS/Dune pull real data.
 4. Decide on **Docker**: bring up Neo4j/Qdrant and verify `ingest_graph`/`ingest_vectors` populate live.
 5. **Sentiment tuning**: add GDELT politeness + decide on Reddit auth.
