@@ -22,6 +22,10 @@ def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFram
     Returns DataFrame indexed by time with columns: portfolio_ret, plus per-symbol
     weights (wide) for turnover analysis.
     """
+    weights = weights.copy()
+    weights["time"] = pd.to_datetime(weights["time"])
+    panel = panel.copy()
+    panel["time"] = pd.to_datetime(panel["time"])
     merged = weights.merge(
         panel[["time", "symbol", "ret_1"]], on=["time", "symbol"], how="left")
     merged["contribution"] = merged["weight"] * merged["ret_1"]
@@ -128,6 +132,10 @@ def breakeven_costs(weights: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
 
     c* = sum(w_k * r_{k,t+1}) / sum(|w_k,t - w_k,t-1|)  (Appendix E)
     """
+    weights = weights.copy()
+    weights["time"] = pd.to_datetime(weights["time"])
+    panel = panel.copy()
+    panel["time"] = pd.to_datetime(panel["time"])
     merged = weights.merge(panel[["time", "symbol", "ret_1"]],
                            on=["time", "symbol"], how="left")
     merged = merged.sort_values(["symbol", "time"])

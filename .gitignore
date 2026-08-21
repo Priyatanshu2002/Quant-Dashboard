@@ -25,10 +25,16 @@ databases/neo4j/logs/
 *.ckpt
 mlruns/
 lightning_logs/
+catboost_info/
 
 # Node / UI
 ui/node_modules/
 ui/dist/
+
+# Jupyter scratch / MCP lab artifacts
+.ipynb_checkpoints/
+.jupyter/
+research/notebooks/mcp_*.ipynb
 
 # IDE / OS
 .idea/

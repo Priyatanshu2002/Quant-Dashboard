@@ -21,6 +21,11 @@ from torch.utils.data import DataLoader, TensorDataset
 from strategy_builder.models import SignalHead, build_encoder
 
 
+def default_device() -> torch.device:
+    """CUDA if available, else CPU. Overridable via train_model(device=...)."""
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 class SignalModel(torch.nn.Module):
     """Encoder + linear-tanh head → position signal in [-1, 1]."""
 
@@ -89,15 +94,17 @@ class WindowedDataset:
                           num_workers=0, drop_last=shuffle)
 
 
-def _validate(model: SignalModel, loader: DataLoader, sigma_tgt: float) -> float:
+def _validate(model: SignalModel, loader: DataLoader, sigma_tgt: float,
+              device: torch.device | None = None) -> float:
     """Mean pooled Sharpe over validation batches (higher = better)."""
+    device = device or default_device()
     model.eval()
     total = 0.0
     n = 0
     with torch.no_grad():
         for xb, rb, vb, tb in loader:
-            y = model(xb, tb)
-            total -= float(pooled_sharpe_loss(y, rb, vb, sigma_tgt))
+            y = model(xb.to(device), tb.to(device))
+            total -= float(pooled_sharpe_loss(y, rb.to(device), vb.to(device), sigma_tgt))
             n += 1
     return total / max(n, 1)
 
@@ -108,7 +115,8 @@ def train_model(model_name: str, train_panel: pd.DataFrame, val_panel: pd.DataFr
                 epochs: int = 60, lr: float = 1e-3, seed: int = 0,
                 sigma_tgt: float = 0.10, patience: int = 10,
                 grad_clip: float = 1.0, use_ticker_emb: bool = True,
-                verbose: bool = False) -> tuple[SignalModel, float, int]:
+                verbose: bool = False,
+                device: torch.device | None = None) -> tuple[SignalModel, float, int]:
     """Train one SignalModel on the pooled-Sharpe objective.
 
     Returns (model, best_val_sharpe, best_epoch).
@@ -116,6 +124,7 @@ def train_model(model_name: str, train_panel: pd.DataFrame, val_panel: pd.DataFr
     torch.manual_seed(seed)
     np.random.seed(seed)
     n_feat = len(feature_cols)
+    device = device or default_device()
 
     train_ds = WindowedDataset(train_panel, feature_cols, lookback, symbols)
     val_ds = WindowedDataset(val_panel, feature_cols, lookback, symbols)
@@ -123,7 +132,7 @@ def train_model(model_name: str, train_panel: pd.DataFrame, val_panel: pd.DataFr
         raise ValueError(f"{model_name}: too few samples train={len(train_ds)} val={len(val_ds)}")
 
     model = SignalModel(model_name, n_feat=n_feat, hidden=hidden, lookback=lookback,
-                        n_assets=len(symbols), use_ticker_emb=use_ticker_emb)
+                        n_assets=len(symbols), use_ticker_emb=use_ticker_emb).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     train_loader = train_ds.to_loader(batch_size, shuffle=True)
@@ -135,12 +144,12 @@ def train_model(model_name: str, train_panel: pd.DataFrame, val_panel: pd.DataFr
         loss = None
         for xb, rb, vb, tb in train_loader:
             opt.zero_grad()
-            y = model(xb, tb)
-            loss = pooled_sharpe_loss(y, rb, vb, sigma_tgt)
+            y = model(xb.to(device), tb.to(device))
+            loss = pooled_sharpe_loss(y, rb.to(device), vb.to(device), sigma_tgt)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             opt.step()
-        val_sharpe = _validate(model, val_loader, sigma_tgt)
+        val_sharpe = _validate(model, val_loader, sigma_tgt, device)
         if val_sharpe > best_sharpe:
             best_sharpe, best_epoch, bad = val_sharpe, ep, 0
         else:
@@ -175,8 +184,10 @@ def run_benchmark_model(model_name: str, panel: pd.DataFrame, feature_cols: list
                         batch_size: int = 256, lr: float = 1e-3,
                         train_months: int = 36, test_months: int = 6,
                         sigma_tgt: float = 0.10, use_ticker_emb: bool = True,
-                        verbose: bool = False) -> dict:
+                        verbose: bool = False,
+                        device: torch.device | None = None) -> dict:
     """Walk-forward train + predict; returns ensembled OOS weights + validation log."""
+    device = device or default_device()
     windows = walk_forward_windows(panel, train_months, test_months)
     weight_frames: list[pd.DataFrame] = []
     val_log: list[dict] = []
@@ -188,7 +199,7 @@ def run_benchmark_model(model_name: str, panel: pd.DataFrame, feature_cols: list
                 model_name, tr, va, feature_cols, symbols, lookback=lookback,
                 hidden=hidden, batch_size=batch_size, epochs=epochs, lr=lr,
                 seed=s, sigma_tgt=sigma_tgt, use_ticker_emb=use_ticker_emb,
-                verbose=verbose)
+                verbose=verbose, device=device)
             seeds_scores.append((vsharpe, model))
             val_log.append({"model": model_name, "window": wi, "seed": s,
                             "val_sharpe": round(vsharpe, 4)})
@@ -200,11 +211,11 @@ def run_benchmark_model(model_name: str, panel: pd.DataFrame, feature_cols: list
         y_all: list[np.ndarray] = []
         with torch.no_grad():
             for xb, rb, vb, tb in loader:
-                y_sum = torch.zeros(len(xb))
+                y_sum = torch.zeros(len(xb), device=device)
                 for _, m in best:
                     m.eval()
-                    y_sum = y_sum + m(xb, tb)
-                y_all.append((y_sum / len(best)).numpy())
+                    y_sum = y_sum + m(xb.to(device), tb.to(device))
+                y_all.append((y_sum / len(best)).cpu().numpy())
         y_ens = np.concatenate(y_all)
         # align with the dataset's own (time, symbol) rows
         out_rows = []

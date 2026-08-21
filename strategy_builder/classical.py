@@ -395,8 +395,10 @@ def hmm_lightgbm(
                 valid = ~np.isnan(rets[:, 0])
                 if valid.any():
                     full[valid] = m.predict_proba(rets[valid])
-            rows.append(pd.DataFrame(full).ffill().bfill().to_numpy())
-        return np.concatenate(rows, axis=0)
+            full_clean = pd.DataFrame(full).ffill().bfill().to_numpy()
+            for t in range(lookback, len(g) - 1):
+                rows.append(full_clean[t])
+        return np.array(rows) if rows else np.zeros((0, n_states))
 
     frames = []
     for tr, va in walk_forward_windows(panel, train_months, test_months):
@@ -434,8 +436,10 @@ def strategy_xgboost(
             s = np.column_stack([
                 g["ret_norm_21"].to_numpy(), g["ret_norm_63"].to_numpy(),
                 g["ret_norm_126"].to_numpy(), g["macd_signal"].to_numpy()])
-            sig.append(s)
-        return np.concatenate(sig, axis=0)
+            s_clean = pd.DataFrame(s).ffill().bfill().to_numpy()
+            for t in range(lookback, len(g) - 1):
+                sig.append(s_clean[t])
+        return np.array(sig) if sig else np.zeros((0, 4))
 
     frames = []
     for tr, va in walk_forward_windows(panel, train_months, test_months):
