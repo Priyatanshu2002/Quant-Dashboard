@@ -163,14 +163,22 @@ def train_model(model_name: str, train_panel: pd.DataFrame, val_panel: pd.DataFr
 
 
 def walk_forward_windows(panel: pd.DataFrame, train_months: int = 36,
-                         test_months: int = 6) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
-    """Expanding-window walk-forward splits over the panel's calendar."""
+                         test_months: int = 6, embargo_days: int = 5) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
+    """Expanding-window walk-forward splits over the panel's calendar.
+
+    embargo_days: a purge buffer dropped from the end of each training window so
+    no validation observation's label (next-day return) leaks into training.
+    This mirrors the purged walk-forward protocol of the reference research
+    (Desktop/Research Notebooks and Data, 60-bar embargo) and removes the
+    otherwise-ubiquitous 1-day label overlap at each train/val boundary.
+    """
     start, end = panel["time"].min(), panel["time"].max()
     windows = []
     cursor = start + pd.DateOffset(months=train_months)
     while cursor + pd.DateOffset(months=test_months) <= end:
         tr_end, te_end = cursor, cursor + pd.DateOffset(months=test_months)
-        tr = panel[(panel["time"] >= start) & (panel["time"] < tr_end)]
+        tr_end_emb = tr_end - pd.Timedelta(days=embargo_days)
+        tr = panel[(panel["time"] >= start) & (panel["time"] < tr_end_emb)]
         va = panel[(panel["time"] >= tr_end) & (panel["time"] < te_end)]
         if len(tr) > 500 and len(va) > 100:
             windows.append((tr, va))
