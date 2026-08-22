@@ -102,8 +102,13 @@ def _env_int(name, default):
         return default
 
 def _env_models(name, default):
-    raw = _cfg.get(name, os.environ.get(name, "")).strip()
-    return [m.strip() for m in raw.split(",") if m.strip()] or default
+    raw = _cfg.get(name, os.environ.get(name, ""))
+    if isinstance(raw, str):                       # "a,b" or "" from env/fallback
+        raw = raw.strip()
+        return [m.strip() for m in raw.split(",") if m.strip()] or default
+    if isinstance(raw, list):                      # already parsed by config json
+        return [str(m).strip() for m in raw if str(m).strip()] or default
+    return default
 
 DEVICE = default_device()
 

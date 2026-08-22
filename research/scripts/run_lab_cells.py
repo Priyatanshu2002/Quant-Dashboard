@@ -14,12 +14,18 @@ Outputs:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import sys
 from pathlib import Path
 
 import nbformat as nbf
 from nbclient import NotebookClient
+
+# nbclient/zmq need the selector event-loop policy on Windows, or the kernel
+# fails to start (kc stays None).
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 ROOT = Path(__file__).resolve().parents[2]
 NB = ROOT / "research" / "notebooks" / "01_empirical_research_lab.ipynb"
@@ -38,63 +44,77 @@ def main() -> int:
     os.chdir(ROOT)
     nb = nbf.read(NB, as_version=4)
 
-    client = NotebookClient(nb, timeout=3600, kernel_name="python3",
-                            resources={"metadata": {"path": str(ROOT)}})
+    # Working notebook for execution. Cells are the SAME objects as nb.cells, so
+    # nbclient mutates their outputs in place; if --cell truncates the run, the
+    # saved notebook still keeps all cells (only executed ones get new outputs).
+    work = nbf.v4.new_notebook()
+    work.metadata = dict(nb.metadata or {})
+    work.cells = list(nb.cells)
+    for c in work.cells:
+        c.setdefault("id", "")
+    if args.cell:
+        code_idx = 0
+        keep = []
+        for c in work.cells:
+            if c.cell_type == "code":
+                code_idx += 1
+                if code_idx > args.cell:
+                    continue
+            keep.append(c)
+        work.cells = keep
+
+    # allow_errors=True lets a failing cell be reported without aborting;
+    # --stop-on-error instead halts at the first failure (execute raises).
+    client = NotebookClient(work, timeout=3600, kernel_name="python3",
+                            resources={"metadata": {"path": str(ROOT)}},
+                            allow_errors=not args.stop_on_error)
 
     print(f"[lab] executing notebook: {NB}")
     print(f"[lab] cwd: {ROOT} | stop_on_error={args.stop_on_error} tag={args.tag or '-'}")
 
-    # Execute the kernel (starts an ipykernel on this machine).
-    # On the pod we run the same script; DEVICE auto-selects CUDA there.
-    client.create_kernel_manager()
-    client.start_new_kernel()
     try:
-        client.kc.wait_for_ready()
-    except Exception as e:  # noqa: BLE001
-        print(f"[lab] kernel failed to start: {e}")
-        return 2
+        client.execute()          # creates kernel + runs cells (execute() path works on Windows)
+    except Exception as e:        # noqa: BLE001 — CellExecutionError when stop_on_error
+        print(f"[lab] execution halted on error: {e}")
+    finally:
+        try:
+            client.km.shutdown_kernel(now=True)
+        except Exception:  # noqa: BLE001
+            pass
 
+    # Print captured outputs per code cell, and count any that errored.
+    failed = 0
     code_idx = 0
-    try:
-        for cell in nb.cells:
-            if cell.cell_type != "code":
-                continue
-            code_idx += 1
-            if args.cell and code_idx > args.cell:
-                break
-            print(f"\n{'='*72}\n[CELL {code_idx:02d}] {cell.source.splitlines()[0][:70]}\n{'-'*72}")
-            try:
-                client.execute_cell(cell, code_idx)
-            except Exception as e:  # noqa: BLE001
-                print(f"[CELL {code_idx:02d}] EXECUTION ERROR: {e}")
-                if args.stop_on_error:
-                    nbf.write(nb, NB)
-                    print(f"[lab] halted at cell {code_idx} — notebook saved.")
-                    return 3
-            # print captured stdout (and note figures)
-            n_text = n_img = 0
-            for out in cell.get("outputs", []):
-                if out.output_type == "stream" and out.get("text"):
-                    sys.stdout.write("".join(out["text"]) if out.get("name") == "stdout"
-                                     else "".join(out["text"]))
-                elif out.output_type in ("execute_result", "display_data"):
-                    if "text/plain" in out.get("data", {}):
-                        print("".join(out["data"]["text/plain"]))
-                    if "text/html" in out.get("data", {}):
-                        n_text += 1
-                    if "image/png" in out.get("data", {}):
-                        n_img += 1
-                elif out.output_type == "error":
-                    print("!! ERROR: " + "\n".join(out.get("traceback", []))[-1200:])
+    for cell in nb.cells:
+        if cell.cell_type != "code":
+            continue
+        code_idx += 1
+        if args.cell and code_idx > args.cell:
+            break
+        n_text = n_img = 0
+        cell_err = False
+        for out in cell.get("outputs", []):
+            if out.output_type == "stream" and out.get("text"):
+                sys.stdout.write("".join(out["text"]))
+            elif out.output_type in ("execute_result", "display_data"):
+                if "text/plain" in out.get("data", {}):
+                    print("".join(out["data"]["text/plain"]))
+                if "image/png" in out.get("data", {}):
+                    n_img += 1
+            elif out.output_type == "error":
+                cell_err = True
+                print("!! ERROR: " + "\n".join(out.get("traceback", []))[-1200:])
+        if cell_err:
+            failed += 1
+            print(f"[CELL {code_idx:02d}] FAILED")
+        else:
             if n_img:
                 print(f"[CELL {code_idx:02d}] >> {n_img} figure(s) rendered")
             print(f"[CELL {code_idx:02d}] OK")
-    finally:
-        client.km.shutdown_kernel(now=True)
 
     nbf.write(nb, NB)
-    print(f"\n[lab] done. Notebook updated with outputs: {NB}")
-    return 0
+    print(f"\n[lab] done. Notebook updated with outputs: {NB}  (failed cells: {failed})")
+    return 3 if failed else 0
 
 
 if __name__ == "__main__":
