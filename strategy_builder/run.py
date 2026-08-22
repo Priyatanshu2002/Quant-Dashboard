@@ -19,7 +19,7 @@ import pandas as pd
 
 from strategy_builder.backtest import (breakeven_costs, full_metrics,
                                        passive_benchmark)
-from strategy_builder.features import FEATURE_COLS, build_universe_frame
+from strategy_builder.features import ALL_FEATURE_COLS, build_universe_frame
 from strategy_builder.models import DEFAULT_HIDDEN, DEFAULT_LOOKBACK, ENCODERS
 from strategy_builder.trainer import run_benchmark_model
 
@@ -67,20 +67,38 @@ UNIVERSE = [
 
 def load_panel(db, universe: list[str] | None = None) -> tuple[pd.DataFrame, list[str]]:
     universe = universe or UNIVERSE
-    closes = {}
+    closes = volumes = highs = lows = {}
     for sym in universe:
         ohlcv = db.query_ohlcv(sym)
         if ohlcv is None or ohlcv.empty or len(ohlcv) < 400:
             log.info("skip %s: insufficient data", sym)
             continue
         closes[sym] = ohlcv["close"]
+        if "volume" in ohlcv.columns:
+            volumes[sym] = ohlcv["volume"]
+        if "high" in ohlcv.columns:
+            highs[sym] = ohlcv["high"]
+        if "low" in ohlcv.columns:
+            lows[sym] = ohlcv["low"]
     prices = pd.DataFrame(closes).sort_index()
     prices = prices.dropna(axis=1, thresh=int(0.8 * len(prices)))
-    panel = build_universe_frame(prices)
+    panel = build_universe_frame(
+        prices,
+        volumes=_df_or_none(volumes, prices.index),
+        highs=_df_or_none(highs, prices.index),
+        lows=_df_or_none(lows, prices.index))
     symbols = sorted(panel["symbol"].unique())
-    log.info("panel: %d rows, %d symbols, %s → %s",
-             len(panel), len(symbols), panel["time"].min().date(), panel["time"].max().date())
+    log.info("panel: %d rows, %d symbols, %d features, %s → %s",
+             len(panel), len(symbols), len(ALL_FEATURE_COLS),
+             panel["time"].min().date(), panel["time"].max().date())
     return panel, symbols
+
+
+def _df_or_none(d: dict, index) -> pd.DataFrame | None:
+    if not d:
+        return None
+    df = pd.DataFrame(d).reindex(index)
+    return df.dropna(axis=1, thresh=int(0.8 * len(df))) if len(df) else None
 
 
 def run_neural(model_name: str, panel: pd.DataFrame, symbols: list[str],
@@ -90,7 +108,7 @@ def run_neural(model_name: str, panel: pd.DataFrame, symbols: list[str],
     hidden = 16 if quick else DEFAULT_HIDDEN[model_name]
     epochs = 15 if quick else 60
     res = run_benchmark_model(
-        model_name, panel, FEATURE_COLS, symbols, lookback=lookback,
+        model_name, panel, ALL_FEATURE_COLS, symbols, lookback=lookback,
         hidden=hidden, seeds=seeds, top_seeds=top_seeds, epochs=epochs,
         train_months=24 if quick else 36, test_months=4 if quick else 6)
     res["model"] = model_name
@@ -108,7 +126,7 @@ def run_classical(model_name: str, panel: pd.DataFrame, symbols: list[str],
         raise ValueError(f"Unknown classical model: {model_name}. "
                          f"Available: {sorted(CLASSICAL_REGISTRY)}")
     fn = CLASSICAL_REGISTRY[model_name]
-    weights = fn(panel, FEATURE_COLS, symbols,
+    weights = fn(panel, ALL_FEATURE_COLS, symbols,
                  lookback=lookback, train_months=tm, test_months=tem)
     return {"model": model_name, "weights": weights,
             "seconds": round(time.time() - t0, 1)}
@@ -123,7 +141,7 @@ def run_volatility(model_name: str, panel: pd.DataFrame, symbols: list[str],
         raise ValueError(f"Unknown volatility model: {model_name}. "
                          f"Available: {sorted(VOLATILITY_REGISTRY)}")
     fn = VOLATILITY_REGISTRY[model_name]
-    weights = fn(panel, FEATURE_COLS, symbols, train_months=tm, test_months=tem)
+    weights = fn(panel, ALL_FEATURE_COLS, symbols, train_months=tm, test_months=tem)
     return {"model": model_name, "weights": weights,
             "seconds": round(time.time() - t0, 1)}
 

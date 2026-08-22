@@ -135,6 +135,7 @@ TOP_SEEDS    = 1  if RUN_MODE == "smoke" else 2
 BATCH_SIZE   = 256
 LR           = 1e-3
 SIGMA_TGT    = 0.10
+COST_BPS     = 10.0
 PATIENCE     = 10
 
 # Model rosters (each overridable independently via config/env)
@@ -165,7 +166,7 @@ from core.db import get_storage
 db = get_storage()
 
 def load_universe(universe, min_bars=400):
-    closes = {}
+    closes = volumes = highs = lows = {}
     for sym in universe:
         ohlcv = db.query_ohlcv(sym)
         if ohlcv is None or ohlcv.empty or len(ohlcv) < min_bars:
@@ -173,11 +174,22 @@ def load_universe(universe, min_bars=400):
                   f"({0 if ohlcv is None else len(ohlcv)} bars)")
             continue
         closes[sym] = ohlcv["close"]
+        if "volume" in ohlcv.columns:
+            volumes[sym] = ohlcv["volume"]
+        if "high" in ohlcv.columns:
+            highs[sym] = ohlcv["high"]
+        if "low" in ohlcv.columns:
+            lows[sym] = ohlcv["low"]
     prices = pd.DataFrame(closes).sort_index()
     prices = prices.dropna(axis=1, thresh=int(0.8 * len(prices)))
-    return prices
+    def _df(d):
+        if not d:
+            return None
+        df = pd.DataFrame(d).reindex(prices.index)
+        return df.dropna(axis=1, thresh=int(0.8 * len(df))) if len(df) else None
+    return prices, _df(volumes), _df(highs), _df(lows)
 
-prices = load_universe(UNIVERSE)
+prices, volumes, highs, lows = load_universe(UNIVERSE)
 print(f"Loaded {prices.shape[1]} assets x {prices.shape[0]} bars")
 print(f"Date range: {prices.index.min().date()} -> {prices.index.max().date()}")
 prices.head()
@@ -228,15 +240,15 @@ protocol:
 Print tensor dimensions `(N, Lookback, F)` and render a correlation heatmap.""")
 
 S2_CODE = code(r'''
-from strategy_builder.features import build_features, build_target, FEATURE_COLS
+from strategy_builder.features import ALL_FEATURE_COLS, build_features, build_target
 
 # Build long-format panel with features + target, exactly like the benchmark.
 from strategy_builder.features import build_universe_frame
-panel = build_universe_frame(prices)
+panel = build_universe_frame(prices, volumes=volumes, highs=highs, lows=lows)
 symbols = sorted(panel["symbol"].unique())
 print(f"Panel: {len(panel):,} rows, {len(symbols)} symbols, "
       f"{panel['time'].min().date()} -> {panel['time'].max().date()}")
-print("Feature columns:", FEATURE_COLS)
+print("Feature columns (%d):" % len(ALL_FEATURE_COLS), ALL_FEATURE_COLS)
 print("Target column  : target (vol-scaled next-day return, clipped)")
 panel.head(3)
 ''')
@@ -246,7 +258,7 @@ S2_CODE2 = code(r'''
 from strategy_builder.trainer import WindowedDataset
 sample_sym = panel["symbol"].iloc[0]
 sub = panel[panel["symbol"] == sample_sym].sort_values("time")
-ds = WindowedDataset(sub, FEATURE_COLS, lookback=LOOKBACK, symbols=[sample_sym])
+ds = WindowedDataset(sub, ALL_FEATURE_COLS, lookback=LOOKBACK, symbols=[sample_sym])
 print(f"Tensor shape: (N={ds.x.shape[0]}, Lookback={ds.x.shape[1]}, F={ds.x.shape[2]})")
 print(f"Sample x[0]: {ds.x[0].shape}, next-day raw return r[0] = {ds.r[0]:.5f}")
 ''')
@@ -257,7 +269,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-feats = sub[FEATURE_COLS].dropna().corr()
+feats = sub[ALL_FEATURE_COLS].dropna().corr()
 fig, ax = plt.subplots(figsize=(9, 7))
 im = ax.imshow(feats.values, cmap="RdBu_r", vmin=-1, vmax=1)
 ax.set_xticks(range(len(feats))); ax.set_yticks(range(len(feats)))
@@ -352,7 +364,7 @@ from strategy_builder.trainer import run_benchmark_model
 def run_neural(name):
     t0 = time.time()
     res = run_benchmark_model(
-        name, panel, FEATURE_COLS, symbols,
+        name, panel, ALL_FEATURE_COLS, symbols,
         lookback=LOOKBACK, hidden=HIDDEN, seeds=SEEDS, top_seeds=TOP_SEEDS,
         epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR,
         train_months=TRAIN_MONTHS, test_months=TEST_MONTHS,
@@ -434,7 +446,7 @@ for name in CLASSICAL_MODELS:
     t0 = time.time()
     try:
         weights = CLASSICAL_REGISTRY[name](
-            panel, FEATURE_COLS, symbols,
+            panel, ALL_FEATURE_COLS, symbols,
             lookback=LOOKBACK, train_months=TRAIN_MONTHS, test_months=TEST_MONTHS)
         CLASSICAL_RESULTS[name] = {"model": name, "weights": weights,
                                    "seconds": round(time.time() - t0, 1)}
@@ -474,7 +486,7 @@ for d in list(NEURAL_RESULTS.values()) + list(CLASSICAL_RESULTS.values()):
 summary = []
 for name, w in ALL_WEIGHTS.items():
     try:
-        m = full_metrics(w, panel, passive)
+        m = full_metrics(w, panel, passive, cost_bps=COST_BPS)
         m["model"] = name
         summary.append(m)
         print(f"{name:<12s} sharpe={m['sharpe']:+.3f} cagr={m['cagr']*100:+.1f}% "
@@ -593,10 +605,10 @@ S6_CODE2 = code(r'''
 for key, spec in MODEL_REGISTRY.items():
     t0 = time.time()
     try:
-        w = spec["fn"](panel, FEATURE_COLS, symbols, lookback=LOOKBACK,
+        w = spec["fn"](panel, ALL_FEATURE_COLS, symbols, lookback=LOOKBACK,
                        train_months=TRAIN_MONTHS, test_months=TEST_MONTHS)
         w.to_csv(BENCH_DIR / f"weights_{key}.csv", index=False)
-        m = full_metrics(w, panel, passive)
+        m = full_metrics(w, panel, passive, cost_bps=COST_BPS)
         m["model"] = key; m["family"] = spec["family"]
         summary.append(m)
         print(f"[{spec['family']:>5s}] {key:<20s} sharpe={m['sharpe']:+.3f} "

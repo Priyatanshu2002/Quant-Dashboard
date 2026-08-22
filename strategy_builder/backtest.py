@@ -15,12 +15,20 @@ import pandas as pd
 TRADING_DAYS = 252
 
 
-def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
+def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame,
+                      max_gross: float = 1.5, cost_bps: float = 0.0) -> pd.DataFrame:
     """Merge weights with next-day returns; daily portfolio return per day.
 
     weights: (time, symbol, weight); panel: long frame with ret_1 (r_t) and time/symbol.
-    Returns DataFrame indexed by time with columns: portfolio_ret, plus per-symbol
-    weights (wide) for turnover analysis.
+    Returns DataFrame indexed by time with columns: portfolio_ret, gross_exposure,
+    per-symbol weights (wide), and turnover (for cost drag).
+
+    Robustness fixes vs the prior buggy version:
+      * weights are gross-capped (sum |w| <= max_gross) so no single model can
+        take absurd leverage (previously weight = pos*sigma_tgt*(1/sigma) reached
+        ~±600%, inflating Sharpe/CAGR).
+      * an optional proportional transaction cost (cost_bps) is applied from the
+        daily weight turnover.
     """
     weights = weights.copy()
     weights["time"] = pd.to_datetime(weights["time"])
@@ -28,12 +36,28 @@ def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFram
     panel["time"] = pd.to_datetime(panel["time"])
     merged = weights.merge(
         panel[["time", "symbol", "ret_1"]], on=["time", "symbol"], how="left")
+
+    # gross-cap weights per day
+    daily_w = merged.groupby("time")["weight"]
+    gross = daily_w.transform(lambda s: s.abs().sum())
+    scale = np.minimum(1.0, max_gross / gross.replace(0.0, np.nan))
+    merged["weight"] = merged["weight"] * scale.fillna(0.0)
+
     merged["contribution"] = merged["weight"] * merged["ret_1"]
     daily = merged.groupby("time").agg(
         portfolio_ret=("contribution", "mean"),
-        n_assets=("weight", "count")).reset_index()
-    wide_w = merged.pivot_table(index="time", columns="symbol", values="weight")
-    return daily.set_index("time").join(wide_w)
+        gross_exposure=("weight", lambda s: s.abs().sum()),
+        n_assets=("weight", "count"))
+    daily.index = pd.DatetimeIndex(daily.index)
+
+    # transaction cost drag from turnover (per symbol weight change, sum abs)
+    wide = merged.pivot_table(index="time", columns="symbol", values="weight").fillna(0.0)
+    wide.index = pd.DatetimeIndex(wide.index)
+    turnover = wide.diff().abs().sum(axis=1).reindex(daily.index).fillna(0.0)
+    if cost_bps > 0:
+        daily["portfolio_ret"] = daily["portfolio_ret"] - turnover * (cost_bps / 1e4)
+    daily["turnover"] = turnover
+    return daily.join(wide)
 
 
 def _hac_tstat(returns: np.ndarray, lags: int | None = None) -> float:
@@ -68,9 +92,16 @@ def annualize(r: pd.Series) -> tuple[float, float, float]:
 
 
 def full_metrics(weights: pd.DataFrame, panel: pd.DataFrame,
-                 passive_ret: pd.Series | None = None) -> dict:
-    """All Appendix-D metrics for one strategy's OOS weights."""
-    pr = portfolio_returns(weights, panel)
+                 passive_ret: pd.Series | None = None,
+                 cost_bps: float = 0.0) -> dict:
+    """All Appendix-D metrics for one strategy's OOS weights.
+
+    cost_bps: proportional transaction cost (bps per unit turnover) applied to
+    the daily returns before computing all metrics. Default 0 keeps behaviour
+    cost-free; the benchmark passes a realistic value so the leaderboard shows
+    NET-of-cost performance (gross Sharpe/CAGR were misleadingly high).
+    """
+    pr = portfolio_returns(weights, panel, cost_bps=cost_bps)
     rets = pr["portfolio_ret"].dropna()
     ann_ret, ann_vol, sharpe = annualize(rets)
     n_days = len(rets)

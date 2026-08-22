@@ -26,8 +26,10 @@ def _fake_panel(n_days: int = 600, n_syms: int = 3) -> pd.DataFrame:
 # ---------------------------------------------------------------- features
 
 def test_feature_columns():
-    assert len(FEATURE_COLS) == 7
+    assert len(FEATURE_COLS) > 7          # rich feature set (was 7 — too thin)
     assert "ret_norm_1" in FEATURE_COLS and "macd_signal" in FEATURE_COLS
+    assert "rsi_14" in FEATURE_COLS and "sma_ratio_50" in FEATURE_COLS
+    assert "skew_21" in FEATURE_COLS and "rv_21" in FEATURE_COLS
 
 
 def test_build_features_shapes_and_finite():
@@ -142,3 +144,44 @@ def test_breakeven_costs_positive_for_profitable():
     be = breakeven_costs(w, panel)
     assert {"symbol", "gross_ann", "turnover_ann", "breakeven_bps"} <= set(be.columns)
     assert len(be) == 3
+
+
+# --- regression tests for the bug fixes -----------------------------------
+
+def test_target_vol_scaling_is_not_inverted():
+    """The classical target must be r/sigma (eq. 23), NOT r*sigma.
+
+    The old code computed target = r / vs_factor = r*sigma, giving a ~zero
+    target (std ~0.0007) that collapsed every classical model to ~0 positions.
+    Correct: target = r * vs_factor = r / sigma, with O(1) magnitude.
+    """
+    rng = np.random.default_rng(0)
+    close = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 500)),
+                      index=pd.bdate_range("2023-01-02", periods=500))
+    from strategy_builder.features import build_features, build_target
+    feats = build_features(close)
+    target = build_target(close)
+    vs = feats["vs_factor"]
+    ret = feats["ret_1"].shift(-1)          # r_{t+1}
+    # correct target aligns with r * vs (r/sigma), not r / vs (r*sigma)
+    expect = (ret * vs).clip(-20, 20)
+    assert np.allclose(target.dropna(), expect.reindex(target.dropna().index), atol=1e-6)
+    # and its magnitude is O(1), not ~0
+    assert abs(target.dropna().std()) > 0.3
+
+
+def test_portfolio_returns_caps_gross_exposure():
+    """Weights must be gross-capped so a model can't take ~±600% leverage."""
+    panel = _fake_panel()
+    # build weights with huge magnitude (pos=1 => weight=0.10*vs ~ up to ±6)
+    w = _fake_weights(panel, 1.0)
+    pr = portfolio_returns(w, panel, max_gross=1.5)
+    assert pr["gross_exposure"].max() <= 1.5 + 1e-9
+
+
+def test_portfolio_returns_cost_drag_reduces_return():
+    panel = _fake_panel()
+    w = _fake_weights(panel, 0.5)
+    pr0 = portfolio_returns(w, panel, cost_bps=0.0)["portfolio_ret"]
+    prc = portfolio_returns(w, panel, cost_bps=10.0)["portfolio_ret"]
+    assert (pr0 - prc).abs().sum() > 0          # cost drag is applied

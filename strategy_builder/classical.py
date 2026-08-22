@@ -60,8 +60,11 @@ def _sample_matrix(
         X = ds.x[:, -1, :]          # (N, F) — most recent bar only
     else:
         X = ds.x.reshape(n, -1)     # (N, L*F) — full flattened window
-    # volatility-scaled next-day return target (paper eq. 23), clipped
-    target = np.clip(ds.r / np.clip(ds.v, 1e-6, None), -20, 20)
+    # volatility-scaled next-day return target (paper eq. 23): r_{t+1}/sigma_t.
+    # vs_factor = 1/sigma, so r * vs = r/sigma (NOT r / vs, which is r*sigma
+    # — the old code was inverted and produced a ~zero target, collapsing every
+    # classical model to ~0 positions).
+    target = np.clip(ds.r * ds.v, -20, 20)
     return X, target, ds.v, ds.r, [(ds.times[i], ds.syms[i]) for i in range(n)]
 
 

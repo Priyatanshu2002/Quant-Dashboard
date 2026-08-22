@@ -36,7 +36,7 @@ import torch
 
 from core.db import get_storage
 from core.logging import get_logger
-from strategy_builder.features import FEATURE_COLS, build_universe_frame
+from strategy_builder.features import ALL_FEATURE_COLS, build_universe_frame
 from strategy_builder.backtest import (
     full_metrics, passive_benchmark, breakeven_costs, equity_curve_from_weights
 )
@@ -75,6 +75,7 @@ EPOCHS = 60          # full training
 BATCH_SIZE = 256
 LR = 1e-3
 SIGMA_TGT = 0.10     # 10% annualized vol target
+COST_BPS = 10.0      # proportional transaction cost (10 bps per unit turnover)
 
 # Models to run, ordered by priority
 NEURAL_MODELS = ["vlstm", "tft", "xlstm", "lstm", "lpatchtst"]
@@ -86,22 +87,39 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_panel(db):
     """Load OHLCV, build features, return panel + symbol list."""
-    closes = {}
+    closes = volumes = highs = lows = {}
     for sym in UNIVERSE:
         ohlcv = db.query_ohlcv(sym)
         if ohlcv is None or ohlcv.empty or len(ohlcv) < 400:
             print(f"  SKIP {sym}: insufficient data ({0 if ohlcv is None else len(ohlcv)} bars)")
             continue
         closes[sym] = ohlcv["close"]
+        if "volume" in ohlcv.columns:
+            volumes[sym] = ohlcv["volume"]
+        if "high" in ohlcv.columns:
+            highs[sym] = ohlcv["high"]
+        if "low" in ohlcv.columns:
+            lows[sym] = ohlcv["low"]
 
     prices = pd.DataFrame(closes).sort_index()
     prices = prices.dropna(axis=1, thresh=int(0.8 * len(prices)))
-    panel = build_universe_frame(prices)
+    panel = build_universe_frame(
+        prices,
+        volumes=_df_or_none(volumes, prices.index),
+        highs=_df_or_none(highs, prices.index),
+        lows=_df_or_none(lows, prices.index))
     symbols = sorted(panel["symbol"].unique())
     print(f"  Panel: {len(panel):,} rows, {len(symbols)} symbols, "
           f"{panel['time'].min().date()} -> {panel['time'].max().date()}")
-    print(f"  Features: {FEATURE_COLS}")
+    print(f"  Features ({len(ALL_FEATURE_COLS)}): {ALL_FEATURE_COLS}")
     return panel, symbols
+
+
+def _df_or_none(d: dict, index):
+    if not d:
+        return None
+    df = pd.DataFrame(d).reindex(index)
+    return df.dropna(axis=1, thresh=int(0.8 * len(df))) if len(df) else None
 
 
 def run_neural_model(model_name, panel, symbols):
@@ -111,7 +129,7 @@ def run_neural_model(model_name, panel, symbols):
 
     try:
         res = run_benchmark_model(
-            model_name, panel, FEATURE_COLS, symbols,
+            model_name, panel, ALL_FEATURE_COLS, symbols,
             lookback=LOOKBACK, hidden=HIDDEN,
             seeds=SEEDS, top_seeds=TOP_SEEDS, epochs=EPOCHS,
             batch_size=BATCH_SIZE, lr=LR,
@@ -152,7 +170,7 @@ def run_classical_model(model_name, panel, symbols):
             raise ValueError(f"Unknown: {model_name}. Available: {sorted(CLASSICAL_REGISTRY)}")
 
         fn = CLASSICAL_REGISTRY[model_name]
-        weights = fn(panel, FEATURE_COLS, symbols,
+        weights = fn(panel, ALL_FEATURE_COLS, symbols,
                      lookback=LOOKBACK,
                      train_months=TRAIN_MONTHS,
                      test_months=TEST_MONTHS)
@@ -177,8 +195,12 @@ def run_classical_model(model_name, panel, symbols):
         }
 
 
-def compute_all_metrics(results, panel, passive_ret):
-    """Compute full metrics for all models."""
+def compute_all_metrics(results, panel, passive_ret, cost_bps: float = 0.0):
+    """Compute full metrics for all models.
+
+    cost_bps: proportional transaction cost (bps) applied so the leaderboard
+    shows NET-of-cost performance rather than the misleading gross Sharpe.
+    """
     summary = []
     for res in results:
         model_name = res["model"]
@@ -192,7 +214,7 @@ def compute_all_metrics(results, panel, passive_ret):
             continue
 
         try:
-            metrics = full_metrics(w, panel, passive_ret)
+            metrics = full_metrics(w, panel, passive_ret, cost_bps=cost_bps)
             metrics["model"] = model_name
             metrics["type"] = res["type"]
             metrics["seconds"] = res["seconds"]
@@ -293,7 +315,7 @@ def main():
     # Compute metrics
     print("\n[4/4] Computing metrics...")
     all_results = classical_results + neural_results
-    summary = compute_all_metrics(all_results, panel, passive)
+    summary = compute_all_metrics(all_results, panel, passive, cost_bps=COST_BPS)
 
     # Print leaderboard
     print_leaderboard(summary)
@@ -317,7 +339,7 @@ def main():
             "rows": len(panel),
             "symbols": symbols,
             "date_range": f"{panel['time'].min().date()} to {panel['time'].max().date()}",
-            "features": FEATURE_COLS,
+            "features": ALL_FEATURE_COLS,
         },
         "summary": summary,
     }
