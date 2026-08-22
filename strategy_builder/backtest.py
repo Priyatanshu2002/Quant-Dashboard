@@ -51,12 +51,15 @@ def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame,
 
     # hold each position for rebalance_days: carry the signal forward.
     if rebalance_days > 1:
+        # take the weight only on rebalance days, forward-fill between them
         wide = merged.pivot_table(index="time", columns="symbol", values="weight")
-        wide = wide.reindex(pd.date_range(wide.index.min(), wide.index.max())).ffill()
-        # re-sample to the rebalance grid, forward-fill between rebalances
-        rebal = wide.iloc[::rebalance_days].reindex(wide.index).ffill()
-        merged = rebal.reset_index().melt(id_vars="time", var_name="symbol",
+        wide = wide.reindex(pd.date_range(wide.index.min(), wide.index.max()))
+        keep_days = wide.index[::rebalance_days]
+        rebal = wide.reindex(keep_days).ffill()      # carry last signal forward
+        rebal = rebal.reindex(wide.index).ffill()
+        merged = rebal.reset_index().melt(id_vars="index", var_name="symbol",
                                           value_name="weight")
+        merged = merged.rename(columns={"index": "time"})
         merged = merged.merge(panel[["time", "symbol", "ret_1"]],
                               on=["time", "symbol"], how="left")
         merged = merged.dropna(subset=["weight"])
@@ -111,15 +114,18 @@ def annualize(r: pd.Series) -> tuple[float, float, float]:
 
 def full_metrics(weights: pd.DataFrame, panel: pd.DataFrame,
                  passive_ret: pd.Series | None = None,
-                 cost_bps: float = 0.0) -> dict:
+                 cost_bps: float = 0.0, rebalance_days: int = 1) -> dict:
     """All Appendix-D metrics for one strategy's OOS weights.
 
     cost_bps: proportional transaction cost (bps per unit turnover) applied to
     the daily returns before computing all metrics. Default 0 keeps behaviour
     cost-free; the benchmark passes a realistic value so the leaderboard shows
     NET-of-cost performance (gross Sharpe/CAGR were misleadingly high).
+
+    rebalance_days>1 holds positions fixed between rebalances, cutting turnover.
     """
-    pr = portfolio_returns(weights, panel, cost_bps=cost_bps)
+    pr = portfolio_returns(weights, panel, cost_bps=cost_bps,
+                           rebalance_days=rebalance_days)
     rets = pr["portfolio_ret"].dropna()
     ann_ret, ann_vol, sharpe = annualize(rets)
     n_days = len(rets)

@@ -70,11 +70,14 @@ def main() -> None:
 
     for name in ["tft"]:
         t0 = time.time()
-        res = run_benchmark_model(name, panel, ALL_FEATURE_COLS, symbols, lookback=24,
-                                  hidden=16, seeds=2, top_seeds=1, epochs=8, batch_size=128,
-                                  train_months=24, test_months=4, verbose=False)
-        models[name] = res["weights"]
-        print(f"  built {name}: {len(res['weights'])} rows ({time.time()-t0:.1f}s)")
+        try:
+            res = run_benchmark_model(name, panel, ALL_FEATURE_COLS, symbols, lookback=24,
+                                      hidden=16, seeds=2, top_seeds=1, epochs=8, batch_size=128,
+                                      train_months=24, test_months=4, verbose=False)
+            models[name] = res["weights"]
+            print(f"  built {name}: {len(res['weights'])} rows ({time.time()-t0:.1f}s)")
+        except Exception as e:
+            print(f"  {name} build FAILED: {str(e)[:80]}")
 
     # Sweep rebalance intervals.
     print(f"\n{'model':<14}{'reb':>5}{'sharpe':>8}{'cagr%':>9}{'maxdd%':>9}{'hit%':>7}{'turn':>8}")
