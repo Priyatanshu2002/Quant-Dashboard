@@ -87,7 +87,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_panel(db):
     """Load OHLCV, build features, return panel + symbol list."""
-    closes = volumes = highs = lows = {}
+    closes, volumes, highs, lows = {}, {}, {}, {}
     for sym in UNIVERSE:
         ohlcv = db.query_ohlcv(sym)
         if ohlcv is None or ohlcv.empty or len(ohlcv) < 400:

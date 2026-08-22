@@ -166,7 +166,7 @@ from core.db import get_storage
 db = get_storage()
 
 def load_universe(universe, min_bars=400):
-    closes = volumes = highs = lows = {}
+    closes, volumes, highs, lows = {}, {}, {}, {}
     for sym in universe:
         ohlcv = db.query_ohlcv(sym)
         if ohlcv is None or ohlcv.empty or len(ohlcv) < min_bars:

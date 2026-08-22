@@ -67,7 +67,7 @@ UNIVERSE = [
 
 def load_panel(db, universe: list[str] | None = None) -> tuple[pd.DataFrame, list[str]]:
     universe = universe or UNIVERSE
-    closes = volumes = highs = lows = {}
+    closes, volumes, highs, lows = {}, {}, {}, {}
     for sym in universe:
         ohlcv = db.query_ohlcv(sym)
         if ohlcv is None or ohlcv.empty or len(ohlcv) < 400:
