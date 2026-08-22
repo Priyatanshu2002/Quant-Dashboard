@@ -31,10 +31,17 @@ def node_h_execution(state: DebateState) -> DebateState:
             from stable_baselines3 import PPO
             from rl_agent.environment import TradingEnvironment
 
-            env = TradingEnvironment({"commission_rate": 0.001, "max_drawdown_limit": 0.15})
+            env = TradingEnvironment({
+                "commission_rate": 0.001, "max_drawdown_limit": 0.15,
+                "symbols": [decision["symbol"]],
+            })
             model = PPO.load(str(model_path))
             obs, _ = env.reset()
-            obs[:] = np.random.randn(128).astype(np.float32) * 0.1
+            # If real feature data was loaded, leave the real obs; otherwise fall
+            # back to a stable zero-centred baseline (not pure noise).
+            if not env._using_real:
+                obs[:] = np.zeros(128, dtype=np.float32)
+                obs[0] = 1.0
             action, _ = model.predict(obs, deterministic=True)
             size, order_type, delay = float(action[0]), int(round(action[1])), int(round(action[2]))
             order.update({

@@ -322,6 +322,10 @@ a:hover { color: var(--accent-strong); }
 /* ── misc ──────────────────────────────────────────────────────────── */
 .up { color: var(--green); }
 .down { color: var(--red); }
+.pos { color: var(--green); font-weight: 600; }
+.neg { color: var(--red); font-weight: 600; }
+.table td.model { color: var(--text); font-weight: 700; }
+.table tbody tr.row-top { background: rgba(74,222,128,0.08); }
 .muted { color: var(--text-muted); }
 .faint { color: var(--text-faint); }
 .mono { font-family: var(--mono); }

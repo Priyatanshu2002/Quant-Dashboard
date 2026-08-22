@@ -81,6 +81,27 @@ def _as_naive_utc(t: Any) -> datetime:
     return ts.to_pydatetime()
 
 
+def _gating_outcome(dominant_side: str | None, pnl_pct) -> str | None:
+    """Label a closed trade as HIT/MISS vs the gating call.
+
+    LONG expects price up → positive PnL = HIT. SHORT expects price down →
+    negative PnL = HIT. Returns None when the PnL is missing so the caller
+    can filter to fully-resolved outcomes only.
+    """
+    if pnl_pct is None:
+        return None
+    try:
+        pnl = float(pnl_pct)
+    except (TypeError, ValueError):
+        return None
+    side = (dominant_side or "").upper()
+    if side == "BULL":
+        return "HIT" if pnl > 0 else "MISS"
+    if side == "BEAR":
+        return "HIT" if pnl < 0 else "MISS"
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Base
 # ─────────────────────────────────────────────────────────────────────
@@ -149,6 +170,11 @@ class Storage:
     def write_macro_snapshot(self, macro: dict) -> None: ...
     def query_latest_macro(self) -> dict | None: ...
 
+    # ── on-chain / raw snapshots (Dune etc.) ──
+    def write_onchain_snapshot(self, name: str, rows: list[dict],
+                               source: str = "dune", ts: Any = None) -> None: ...
+    def query_onchain_snapshot(self, name: str, limit: int = 1) -> list[dict]: ...
+
     # ── full-text search corpus (R4) ──
     def index_corpus_doc(self, symbol: str, kind: str, title: str = "",
                          body: str = "", url: str = "", ts: Any = None,
@@ -167,6 +193,8 @@ class Storage:
     # ── trade / risk logs ──
     def write_trade(self, trade: dict) -> None: ...
     def write_gating_log(self, row: dict) -> None: ...
+    def query_recent_gating(self, n: int = 100) -> list[dict]: ...
+    def query_gating_outcomes(self, n: int = 100) -> list[dict]: ...
     def write_portfolio_snapshot(self, row: dict) -> None: ...
     def write_daily_performance(self, row: dict) -> None: ...
     def write_reflection(self, cycle_id: str | None, lesson: str) -> None: ...
@@ -827,6 +855,37 @@ class SQLiteStorage(Storage):
             row = conn.execute("SELECT * FROM macro_snapshots ORDER BY ts DESC LIMIT 1").fetchone()
         return dict(row) if row else None
 
+    # ── on-chain / raw snapshots ──
+    def write_onchain_snapshot(self, name: str, rows: list[dict],
+                               source: str = "dune", ts: Any = None) -> None:
+        """Store a Dune/on-chain result as raw JSON in market_data."""
+        if not rows:
+            return
+        symbol = f"ONCHAIN_{name.upper()}"
+        ts = ts or _utc_now()
+        with self._session() as conn:
+            conn.execute(
+                "INSERT INTO market_data "
+                "(time, symbol, asset_class, source, interval, raw) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [_as_naive_utc(ts).isoformat(sep=" "),
+                 symbol, "ONCHAIN", source, "1d", json.dumps(rows)])
+
+    def query_onchain_snapshot(self, name: str, limit: int = 1) -> list[dict]:
+        symbol = f"ONCHAIN_{name.upper()}"
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT time, raw FROM market_data WHERE symbol=? "
+                "ORDER BY time DESC LIMIT ?", (symbol, limit)).fetchall()
+        out = []
+        for r in rows:
+            try:
+                data = json.loads(r["raw"])
+            except (TypeError, ValueError):
+                data = []
+            out.append({"time": r["time"], "rows": data})
+        return out
+
     # ── full-text search corpus (R4) ──
     def index_corpus_doc(self, symbol: str, kind: str, title: str = "",
                          body: str = "", url: str = "", ts: Any = None,
@@ -984,6 +1043,37 @@ class SQLiteStorage(Storage):
         with self._session() as conn:
             conn.execute(sql, [_as_naive_utc(ts).isoformat(sep=" "),
                                *[json.dumps(raw) if c == "raw" else row.get(c) for c in cols]])
+
+    def query_recent_gating(self, n: int = 100) -> list[dict]:
+        """Recent gating decisions (newest first)."""
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM gating_log ORDER BY time DESC LIMIT ?", (n,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def query_gating_outcomes(self, n: int = 100) -> list[dict]:
+        """Join gating decisions with their trade outcomes (entry/exit PnL).
+
+        Outcome is 'HIT' when the trade's realized PnL matched the dominant
+        side's expectation (LONG + positive PnL = hit; SHORT + negative PnL =
+        hit as a short made money). Returned newest-first, only for gating
+        rows that produced a closed trade.
+        """
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT g.time, g.cycle_id, g.symbol, g.dominant_side, g.decision, "
+                "t.exit_price, t.entry_price, t.pnl_usd, t.pnl_pct, t.exit_time "
+                "FROM gating_log g LEFT JOIN trade_log t ON g.cycle_id = t.cycle_id "
+                "WHERE t.trade_id IS NOT NULL AND t.exit_time IS NOT NULL "
+                "AND t.exit_time != '' "
+                "ORDER BY g.time DESC LIMIT ?", (n,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            pnl = d.get("pnl_pct")
+            d["outcome"] = _gating_outcome(d.get("dominant_side"), pnl)
+            out.append(d)
+        return out
 
     def write_portfolio_snapshot(self, row: dict) -> None:
         row = dict(row)
@@ -1197,6 +1287,10 @@ class TimescaleStorage(Storage):
         raise NotImplementedError("Trade logging via TimescaleDB not yet wired.")
 
     def write_gating_log(self, row: dict) -> None: ...
+    def query_recent_gating(self, n: int = 100) -> list[dict]:
+        raise NotImplementedError("Gating query via TimescaleDB not yet wired.")
+    def query_gating_outcomes(self, n: int = 100) -> list[dict]:
+        raise NotImplementedError("Gating outcome query via TimescaleDB not yet wired.")
     def write_portfolio_snapshot(self, row: dict) -> None: ...
     def write_daily_performance(self, row: dict) -> None: ...
     def write_reflection(self, cycle_id: str | None, lesson: str) -> None: ...

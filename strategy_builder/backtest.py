@@ -16,12 +16,18 @@ TRADING_DAYS = 252
 
 
 def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame,
-                      max_gross: float = 1.5, cost_bps: float = 0.0) -> pd.DataFrame:
+                      max_gross: float = 1.5, cost_bps: float = 0.0,
+                      rebalance_days: int = 1) -> pd.DataFrame:
     """Merge weights with next-day returns; daily portfolio return per day.
 
     weights: (time, symbol, weight); panel: long frame with ret_1 (r_t) and time/symbol.
     Returns DataFrame indexed by time with columns: portfolio_ret, gross_exposure,
     per-symbol weights (wide), and turnover (for cost drag).
+
+    rebalance_days>1 holds each position fixed for that many days (only re-trades
+    every rebalance_days), which cuts turnover and transaction costs dramatically.
+    The signal on rebalance days is used unchanged; between rebalances the last
+    weight is carried forward.
 
     Robustness fixes vs the prior buggy version:
       * weights are gross-capped (sum |w| <= max_gross) so no single model can
@@ -42,6 +48,18 @@ def portfolio_returns(weights: pd.DataFrame, panel: pd.DataFrame,
     gross = daily_w.transform(lambda s: s.abs().sum())
     scale = np.minimum(1.0, max_gross / gross.replace(0.0, np.nan))
     merged["weight"] = merged["weight"] * scale.fillna(0.0)
+
+    # hold each position for rebalance_days: carry the signal forward.
+    if rebalance_days > 1:
+        wide = merged.pivot_table(index="time", columns="symbol", values="weight")
+        wide = wide.reindex(pd.date_range(wide.index.min(), wide.index.max())).ffill()
+        # re-sample to the rebalance grid, forward-fill between rebalances
+        rebal = wide.iloc[::rebalance_days].reindex(wide.index).ffill()
+        merged = rebal.reset_index().melt(id_vars="time", var_name="symbol",
+                                          value_name="weight")
+        merged = merged.merge(panel[["time", "symbol", "ret_1"]],
+                              on=["time", "symbol"], how="left")
+        merged = merged.dropna(subset=["weight"])
 
     merged["contribution"] = merged["weight"] * merged["ret_1"]
     daily = merged.groupby("time").agg(

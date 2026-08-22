@@ -30,6 +30,12 @@ class EventBus:
             result = handler(event_type, payload)
             if asyncio.iscoroutine(result):
                 await result
+        # Count every published event for Prometheus metrics (best-effort).
+        try:
+            from core.api_server import record_event
+            record_event(event_type)
+        except Exception:  # noqa: BLE001
+            pass
 
     def subscriber_count(self, event_type: str) -> int:
         return len(self._subscribers.get(event_type, []))

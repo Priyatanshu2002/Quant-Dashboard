@@ -1,6 +1,6 @@
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
-  Activity, Briefcase, Gauge, LineChart, MessageSquare, MonitorCog, Scale, Zap,
+  Activity, Briefcase, Gauge, LineChart, MessageSquare, MonitorCog, Scale, Trophy, Waypoints, Zap,
 } from "lucide-react";
 import ScreenerPage from "./pages/screener";
 import FinancialsPage from "./pages/financials";
@@ -9,6 +9,8 @@ import BacktestResultsPage from "./pages/backtest_results";
 import PortfolioPage from "./pages/portfolio";
 import DebateViewerPage from "./pages/debate_viewer";
 import MonitoringPage from "./pages/monitoring";
+import OnchainPage from "./pages/onchain";
+import BenchmarkPage from "./pages/benchmark";
 
 interface NavEntry { to: string; label: string; icon: React.ElementType; end?: boolean; }
 const NAV: { group: string; items: NavEntry[] }[] = [
@@ -16,6 +18,7 @@ const NAV: { group: string; items: NavEntry[] }[] = [
     group: "Analytics",
     items: [
       { to: "/", label: "Screener", icon: Gauge, end: true },
+      { to: "/onchain", label: "On-chain", icon: Waypoints },
       { to: "/financials", label: "Financials", icon: LineChart },
       { to: "/valuation", label: "Valuation", icon: Scale },
     ],
@@ -24,6 +27,7 @@ const NAV: { group: string; items: NavEntry[] }[] = [
     group: "Engine",
     items: [
       { to: "/backtest", label: "Backtests", icon: Activity },
+      { to: "/benchmark", label: "Benchmark", icon: Trophy },
       { to: "/portfolio", label: "Portfolio", icon: Briefcase },
       { to: "/debate", label: "Debate", icon: MessageSquare },
     ],
@@ -37,8 +41,8 @@ const NAV: { group: string; items: NavEntry[] }[] = [
 ];
 
 const TITLES: Record<string, string> = {
-  "/": "Screener", "/financials": "Fundamentals", "/valuation": "Valuation",
-  "/backtest": "Backtest Engine", "/portfolio": "Portfolio", "/debate": "LangGraph Debate",
+  "/": "Screener", "/onchain": "On-chain", "/financials": "Fundamentals", "/valuation": "Valuation",
+  "/backtest": "Backtest Engine", "/benchmark": "Model Benchmark", "/portfolio": "Portfolio", "/debate": "LangGraph Debate",
   "/monitoring": "System Monitoring",
 };
 
@@ -94,11 +98,13 @@ export default function App() {
         <main className="content">
           <Routes>
             <Route path="/" element={<ScreenerPage />} />
+            <Route path="/onchain" element={<OnchainPage />} />
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/financials/:symbol" element={<FinancialsPage />} />
             <Route path="/valuation" element={<ValuationPage />} />
             <Route path="/valuation/:symbol" element={<ValuationPage />} />
             <Route path="/backtest" element={<BacktestResultsPage />} />
+            <Route path="/benchmark" element={<BenchmarkPage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/debate" element={<DebateViewerPage />} />
             <Route path="/monitoring" element={<MonitoringPage />} />

@@ -338,6 +338,38 @@ export interface MonitoringDTO {
   note: string | null;
 }
 
+// ── On-chain (/api/onchain) ─────────────────────────────────────────
+export interface OnchainQuery {
+  name: string;
+  count: number;
+  rows: Record<string, unknown>[];
+  stored_at: string | null;
+}
+export interface OnchainDTO {
+  source: string;
+  queries: OnchainQuery[];
+  note?: string | null;
+}
+
+// ── Benchmark (/api/benchmark) ──────────────────────────────────────
+export interface BenchmarkRow {
+  model: string;
+  sharpe: number | null;
+  cagr: number | null;
+  max_dd: number | null;
+  calmar: number | null;
+  hit_rate: number | null;
+  t_hac: number | null;
+  info_ratio: number | null;
+}
+export interface BenchmarkDTO {
+  mode: string;
+  generated: string | null;
+  description?: string | null;
+  note?: string | null;
+  summary: BenchmarkRow[];
+}
+
 export const api = {
   screener: () => get<ScreenerRow[]>("/screener/top"),
   screenerMarket: () => get<{ count: number; rows: MarketRow[] }>("/screener/market"),
@@ -350,6 +382,8 @@ export const api = {
     get<SentimentDTO>(`/sentiment?symbol=${symbol}&hours=${hours}`),
   debate: (limit = 10) => get<Record<string, unknown>[]>(`/debate/recent?limit=${limit}`),
   monitoring: () => get<MonitoringDTO>("/monitoring"),
+  onchain: () => get<OnchainDTO>("/onchain"),
+  benchmark: () => get<BenchmarkDTO>("/benchmark"),
   valuation: (symbol = "AAPL") => get<ValuationDTO>(`/model?symbol=${symbol}`),
   refreshFundamentals: (symbol = "AAPL") => post<Record<string, unknown>>(`/fundamentals/refresh?symbol=${symbol}`),
   refreshSentiment: (symbol = "AAPL") => post<Record<string, unknown>>(`/sentiment/refresh?symbol=${symbol}`),

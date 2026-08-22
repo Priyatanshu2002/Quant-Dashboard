@@ -1,9 +1,13 @@
 """GDELT news-event fetcher (free API, no key).
 
 Pulls the most recent articles mentioning a symbol and lexicons them into
-[-1, +1] sentiment events persisted to storage.
+[-1, +1] sentiment events persisted to storage. Includes politeness pacing
+(rate-limit guard + inter-symbol delay) so rapid sweeps don't trigger GDELT's
+429 quota errors.
 """
 from __future__ import annotations
+
+import time
 
 import requests
 
@@ -17,17 +21,36 @@ log = get_logger(__name__)
 GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc"
 SOURCE_WEIGHT = 0.8
 
+# GDELT free tier: ~1 req/sec sustained. Space requests to stay under quota.
+_MIN_REQUEST_INTERVAL = 1.2
+_last_request_at: float = 0.0
+
+
+def _pace() -> None:
+    """Throttle to at most one GDELT request per interval (process-wide)."""
+    global _last_request_at
+    now = time.monotonic()
+    wait = _MIN_REQUEST_INTERVAL - (now - _last_request_at)
+    if wait > 0:
+        time.sleep(wait)
+    _last_request_at = time.monotonic()
+
 
 def fetch_gdelt_events(symbol: str, maxrecords: int = 25,
                        timespan: str = "24h",
                        storage: Storage | None = None) -> list[dict]:
     """Fetch recent GDELT articles for a symbol and persist scored events."""
     storage = storage or get_storage()
+    _pace()
     resp = requests.get(
         GDELT_DOC,
         params={"query": f'"{symbol}"', "mode": "artlist", "maxrecords": maxrecords,
                 "timespan": timespan, "format": "json"},
         timeout=30)
+    if resp.status_code == 429:
+        log.warning("GDELT rate-limited (429) for %s — backing off", symbol)
+        time.sleep(5.0)
+        return []
     if resp.status_code != 200:
         log.warning("GDELT returned %s for %s", resp.status_code, symbol)
         return []

@@ -45,3 +45,10 @@ Thumbs.db
 # scratch reference extractions (not part of the codebase)
 .val_extract/
 ref_extract/
+
+# ad-hoc audit / analysis outputs (generated, not source)
+scripts/audit_dump.json
+scripts/audit_report_raw.txt
+scripts/_analyze_all_files.py
+scripts/_deep_audit.py
+scripts/_find_logical_bugs.py

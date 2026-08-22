@@ -209,3 +209,32 @@ def latest_technical_features(ohlcv: pd.DataFrame) -> dict:
         return {}
     row = frame.iloc[-1]
     return {k: (None if pd.isna(v) else float(v)) for k, v in row.items()}
+
+
+# Technical features the composite scorer actually consumes. Computing just
+# these (instead of the full ~75) keeps a full-universe screener pass fast.
+_SCORE_NEEDED = ("rsi_14", "price_vs_ema200_pct", "macd_histogram",
+                 "adx_14", "return_20bar", "return_5bar")
+
+
+def latest_scoring_features(ohlcv: pd.DataFrame) -> dict:
+    """Latest dict of only the technical features the screener scorer uses."""
+    close = ohlcv["close"]
+    high, low = ohlcv["high"], ohlcv["low"]
+    out: dict[str, float | None] = {}
+    rsi = ta.momentum.RSIIndicator(close, 14).rsi()
+    out["rsi_14"] = _last(rsi)
+    ema200 = ta.trend.EMAIndicator(close, 200).ema_indicator()
+    out["price_vs_ema200_pct"] = _last((close / ema200 - 1) * 100)
+    macd = ta.trend.MACD(close)
+    out["macd_histogram"] = _last(macd.macd_diff())
+    adx = ta.trend.ADXIndicator(high, low, close, 14).adx()
+    out["adx_14"] = _last(adx)
+    for n, key in ((20, "return_20bar"), (5, "return_5bar")):
+        out[key] = _last((close / close.shift(n) - 1) * 100)
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def _last(s) -> float | None:
+    v = s.iloc[-1]
+    return None if pd.isna(v) else float(v)

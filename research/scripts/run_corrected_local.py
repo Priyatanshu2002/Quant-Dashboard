@@ -1,12 +1,8 @@
-"""Corrected benchmark run (local CPU) after root-cause fixes.
+"""Complete corrected benchmark — all key models, local CPU.
 
-Runs all classical models (full config) + a couple neural encoders (reduced
-epochs, since CPU is slow) through the FIXED pipeline:
-  - correct vol-normalized target (r/sigma, not r*sigma)
-  - gross-capped leverage (sum|w| <= 1.5)
-  - net-of-cost metrics (10 bps)
-  - 48-feature set incl. cross-sectional ranks
-Prints a leaderboard sorted by net OOS Sharpe.
+Skips gbm (sklearn GB on 1536-dim is pathologically slow on CPU). Runs every
+other classical model at full config + 3 neural encoders at reduced epochs,
+through the FIXED pipeline. Writes leaderboard.json + weights CSVs.
 
 Usage: .venv/Scripts/python research/scripts/run_corrected_local.py
 """
@@ -22,14 +18,15 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.db import get_storage  # noqa: E402
-from strategy_builder.backtest import full_metrics, passive_benchmark
-from strategy_builder.classical import CLASSICAL_REGISTRY
-from strategy_builder.features import ALL_FEATURE_COLS, build_universe_frame
-from strategy_builder.trainer import run_benchmark_model
+from strategy_builder.backtest import full_metrics, passive_benchmark  # noqa: E402
+from strategy_builder.classical import CLASSICAL_REGISTRY  # noqa: E402
+from strategy_builder.features import ALL_FEATURE_COLS, build_universe_frame  # noqa: E402
+from strategy_builder.trainer import run_benchmark_model  # noqa: E402
 
 COST_BPS = 10.0
+OUT = Path("data/benchmark")
 UNIVERSE = ["AAPL", "MSFT", "NVDA", "SPY", "QQQ", "TSLA", "JPM", "XOM", "GLD", "TLT"]
-
+SKIP = {"gbm"}   # sklearn GradientBoosting: pathologically slow on CPU
 
 def main() -> None:
     db = get_storage()
@@ -48,11 +45,12 @@ def main() -> None:
     symbols = sorted(panel["symbol"].unique())
     passive = passive_benchmark(panel)
     print(f"panel: {len(panel)} rows, {len(symbols)} syms, {len(ALL_FEATURE_COLS)} features, "
-          f"target_std={panel['target'].std():.2f}")
+          f"target_std={panel['target'].std():.2f}", flush=True)
 
     summary = []
-    # Classical — full config (fast on CPU)
     for name in CLASSICAL_REGISTRY:
+        if name in SKIP:
+            continue
         t0 = time.time()
         try:
             w = CLASSICAL_REGISTRY[name](panel, ALL_FEATURE_COLS, symbols,
@@ -60,14 +58,14 @@ def main() -> None:
             m = full_metrics(w, panel, passive, cost_bps=COST_BPS)
             m["model"] = name; m["type"] = "classical"; m["seconds"] = round(time.time() - t0, 1)
             summary.append(m)
+            w.to_csv(OUT / f"weights_{name}.csv", index=False)
             print(f"  {name:<14} Sharpe={m['sharpe']:+.2f} CAGR={m['cagr']*100:+.1f}% "
-                  f"MaxDD={m['max_dd']*100:.1f}% hit={m['hit_rate']:.2f} ({m['seconds']}s)")
+                  f"MaxDD={m['max_dd']*100:.1f}% hit={m['hit_rate']:.2f} ({m['seconds']}s)", flush=True)
         except Exception as e:
             summary.append({"model": name, "error": str(e)[:80]})
-            print(f"  {name:<14} ERROR {str(e)[:70]}")
+            print(f"  {name:<14} ERROR {str(e)[:70]}", flush=True)
 
-    # Neural — reduced epochs on CPU
-    for name in ["nlinear", "tft"]:
+    for name in ["nlinear", "tft", "lstm"]:
         t0 = time.time()
         try:
             res = run_benchmark_model(name, panel, ALL_FEATURE_COLS, symbols, lookback=24,
@@ -77,19 +75,22 @@ def main() -> None:
             m["model"] = name; m["type"] = "neural"; m["seconds"] = round(time.time() - t0, 1)
             summary.append(m)
             print(f"  {name:<14} Sharpe={m['sharpe']:+.2f} CAGR={m['cagr']*100:+.1f}% "
-                  f"MaxDD={m['max_dd']*100:.1f}% hit={m['hit_rate']:.2f} ({m['seconds']}s)")
+                  f"MaxDD={m['max_dd']*100:.1f}% hit={m['hit_rate']:.2f} ({m['seconds']}s)", flush=True)
         except Exception as e:
             summary.append({"model": name, "error": str(e)[:80]})
-            print(f"  {name:<14} ERROR {str(e)[:70]}")
+            print(f"  {name:<14} ERROR {str(e)[:70]}", flush=True)
 
     valid = [s for s in summary if "sharpe" in s]
     valid.sort(key=lambda s: s["sharpe"], reverse=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "leaderboard_corrected.json").write_text(
+        __import__("json").dumps({"mode": "local-cpu-corrected", "cost_bps": COST_BPS,
+                                  "summary": valid}, indent=2, default=str), encoding="utf-8")
     print("\n===== CORRECTED LEADERBOARD (net-of-cost, sorted by Sharpe) =====")
     print(f"{'model':<14}{'sharpe':>8}{'cagr%':>9}{'maxdd%':>9}{'hit%':>7}{'t_hac':>7}{'turn':>8}")
     for s in valid:
         print(f"{s['model']:<14}{s['sharpe']:>+8.2f}{s['cagr']*100:>9.1f}"
               f"{s['max_dd']*100:>9.1f}{s['hit_rate']*100:>7.1f}{s['t_hac']:>7.2f}{s['turnover']:>8.1f}")
-
 
 if __name__ == "__main__":
     main()

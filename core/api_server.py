@@ -17,6 +17,9 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import threading
+import time
+from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -26,6 +29,138 @@ from core.db import get_storage
 from core.logging import get_logger
 
 log = get_logger(__name__)
+
+# ── Prometheus metrics registry (in-memory, per-process) ────────────────
+_metrics_lock = threading.Lock()
+_http_requests: dict[str, int] = defaultdict(int)        # route → count
+_http_duration_histo: dict[tuple[str, str], int] = defaultdict(int)  # (route, le) → count
+_HTTP_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf"))
+_events_total: dict[str, int] = defaultdict(int)         # feed → count
+_screener_scored: int = 0
+_screener_passed: int = 0
+_llm_cost_usd: float = 0.0
+
+
+def record_event(feed: str, n: int = 1) -> None:
+    """Increment the events_total counter for a feed (called from the event bus)."""
+    with _metrics_lock:
+        _events_total[feed] += n
+
+
+def record_screener(scored: int, passed: int) -> None:
+    """Record a screener run for the scored/passed Prometheus gauges."""
+    global _screener_scored, _screener_passed
+    with _metrics_lock:
+        _screener_scored += scored
+        _screener_passed += passed
+
+
+def record_llm_cost(usd: float) -> None:
+    global _llm_cost_usd
+    with _metrics_lock:
+        _llm_cost_usd += usd
+
+
+def _record_duration(route: str, t0: float) -> None:
+    """Record an HTTP request duration into the histogram buckets.
+
+    Acquires the metrics lock internally (call WITHOUT holding it)."""
+    dur = time.monotonic() - t0
+    with _metrics_lock:
+        _http_requests[route] += 1
+        for b in _HTTP_BUCKETS:
+            if dur <= b:
+                _http_duration_histo[(route, b)] += 1
+
+
+def _fmt_metric(name: str, help_text: str, type_: str) -> str:
+    return (f"# HELP {name} {help_text}\n# TYPE {name} {type_}\n")
+
+
+def _route_metrics(db=None) -> str:
+    """Render Prometheus text-format metrics from in-memory counters + live DB."""
+    import sqlite3
+    db = db or get_storage()
+    lines: list[str] = []
+
+    # HTTP request counters (by route)
+    with _metrics_lock:
+        reqs = dict(_http_requests)
+        histo = dict(_http_duration_histo)
+        events = dict(_events_total)
+        llm = _llm_cost_usd
+        scored = _screener_scored
+        passed = _screener_passed
+    lines.append(_fmt_metric("agonistes_http_requests_total",
+                             "HTTP requests served, by route.", "counter"))
+    for route, n in sorted(reqs.items()):
+        lines.append(f'agonistes_http_requests_total{{route="{route}"}} {n}')
+
+    lines.append(_fmt_metric("agonistes_http_request_duration_seconds",
+                             "HTTP request duration histogram.", "histogram"))
+    for (route, le), n in sorted(histo.items()):
+        _le = le if le != float("inf") else "+Inf"
+        lines.append(f'agonistes_http_request_duration_seconds_bucket{{route="{route}",le="{_le}"}} {n}')
+
+    lines.append(_fmt_metric("agonistes_events_total",
+                             "Events published on the bus, by feed.", "counter"))
+    for feed, n in sorted(events.items()):
+        lines.append(f'agonistes_events_total{{feed="{feed}"}} {n}')
+
+    lines.append(_fmt_metric("agonistes_llm_cost_usd_total",
+                             "Accumulated LLM spend in USD.", "counter"))
+    lines.append(f"agonistes_llm_cost_usd_total {llm}")
+
+    lines.append(_fmt_metric("agonistes_screener_scored_total",
+                             "Assets scored by the screener.", "counter"))
+    lines.append(f"agonistes_screener_scored_total {scored}")
+    lines.append(_fmt_metric("agonistes_screener_passed_total",
+                             "Assets passing the screener threshold.", "counter"))
+    lines.append(f"agonistes_screener_passed_total {passed}")
+
+    # Live gauges from the SQLite DB
+    def _gauge_int(sql: str, metric: str, help_text: str, label: str | None = None):
+        lines.append(_fmt_metric(metric, help_text, "gauge"))
+        try:
+            with db._conn() as conn:
+                rows = conn.execute(sql).fetchall()
+        except sqlite3.OperationalError:
+            return
+        for r in rows:
+            if label:
+                lines.append(f'{metric}{{{label}="{r[0]}"}} {r[1] if r[1] is not None else 0}')
+            else:
+                lines.append(f"{metric} {r[0] if r[0] is not None else 0}")
+
+    _gauge_int("SELECT direction, COUNT(*) FROM trade_log GROUP BY direction",
+               "agonistes_trades_by_direction", "Trades by direction.", "direction")
+    _gauge_int("SELECT direction, COUNT(*) FROM trade_log GROUP BY direction",
+               "agonistes_trades_total", "Trades by direction.", "direction")
+    _gauge_int("SELECT decision, COUNT(*) FROM gating_log GROUP BY decision",
+               "agonistes_gating_total", "Gating decisions by outcome.", "decision")
+    _gauge_int("SELECT event_type, COUNT(*) FROM circuit_breaker_events GROUP BY event_type",
+               "agonistes_circuit_breaker_total", "Circuit breaker events by type.", "event_type")
+    _gauge_int("SELECT COUNT(*) FROM market_data WHERE symbol NOT LIKE 'ONCHAIN_%'",
+               "agonistes_ohlcv_bars_total",
+               "OHLCV bars stored.", None)
+    _gauge_int("SELECT COUNT(*) FROM feature_vectors", "agonistes_feature_vectors_total",
+               "Feature vectors stored.", None)
+
+    # Portfolio gauges
+    try:
+        with db._conn() as conn:
+            row = conn.execute(
+                "SELECT nav_usd, daily_pnl_usd FROM portfolio_snapshot "
+                "ORDER BY time DESC LIMIT 1").fetchone()
+        if row:
+            lines.append("# TYPE agonistes_nav_usd gauge\nagonistes_nav_usd "
+                         f"{row['nav_usd'] if row['nav_usd'] is not None else 0}")
+            lines.append("# TYPE agonistes_daily_pnl_usd gauge\nagonistes_daily_pnl_usd "
+                         f"{row['daily_pnl_usd'] if row['daily_pnl_usd'] is not None else 0}")
+    except Exception:  # noqa: BLE001
+        pass
+
+    return "\n".join(lines) + "\n"
 
 
 def _q(qs: dict, key: str, default: str) -> str:
@@ -348,6 +483,7 @@ def _route_monitoring(db) -> dict:
         ("llm_analyses", "LLM analyst verdicts", "llm_analyses"),
         ("earnings", "Earnings calendar", "earnings_results"),
         ("macro", "Macro indicators", "macro_snapshots"),
+        ("onchain", "On-chain (Dune/CoinGecko)", "market_data"),
         ("debate", "Gating / debate log", "gating_log"),
         ("portfolio", "Portfolio snapshots", "portfolio_snapshot"),
     ]
@@ -357,10 +493,16 @@ def _route_monitoring(db) -> dict:
         import sqlite3
         try:
             with db._conn() as conn:
-                for _, _, table in FEEDS:
+                for key, _, table in FEEDS:
                     try:
-                        row = conn.execute(
-                            f"SELECT COUNT(*) FROM {table}").fetchone()
+                        if key == "onchain":
+                            # Count on-chain snapshots specifically (not all bars).
+                            row = conn.execute(
+                                "SELECT COUNT(*) FROM market_data "
+                                "WHERE symbol LIKE 'ONCHAIN_%'").fetchone()
+                        else:
+                            row = conn.execute(
+                                f"SELECT COUNT(*) FROM {table}").fetchone()
                         counts[table] = int(row[0]) if row else 0
                     except sqlite3.OperationalError:
                         counts[table] = 0
@@ -417,12 +559,95 @@ def _route_monitoring(db) -> dict:
     }
 
 
+def _route_onchain(db) -> dict:
+    """Dune on-chain snapshots: latest rows per configured query + freshness."""
+    if db.backend != "sqlite":
+        return {"queries": [], "note": "onchain snapshots require SQLite dev mode"}
+    import sqlite3
+    names = [
+        "dex_volume_by_pair_7d",
+        "dex_volume_daily_7d",
+        "dex_volume_by_blockchain_7d",
+        "dex_volume_by_protocol_7d",
+    ]
+    queries = []
+    try:
+        with db._conn() as conn:
+            for name in names:
+                row = conn.execute(
+                    "SELECT time, raw FROM market_data "
+                    "WHERE symbol=? ORDER BY time DESC LIMIT 1",
+                    (f"ONCHAIN_{name.upper()}",)).fetchone()
+                if not row:
+                    queries.append({"name": name, "count": 0, "rows": [],
+                                    "stored_at": None})
+                    continue
+                import json
+                try:
+                    rows = json.loads(row["raw"])
+                except (TypeError, ValueError):
+                    rows = []
+                queries.append({"name": name, "count": len(rows),
+                                "rows": rows, "stored_at": row["time"]})
+    except sqlite3.OperationalError:
+        return {"queries": [], "note": "market_data table not available"}
+    return {"source": "dune", "queries": queries}
+
+
+def _route_benchmark() -> dict:
+    """Model benchmark leaderboard.
+
+    Primary source is the canonical full walk-forward results
+    (data/benchmark/leaderboard_full.json, 12 models). Falls back to merging
+    whatever per-run benchmark files exist so the page never 500s.
+    """
+    import json as _json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    full = root / "data" / "benchmark" / "leaderboard_full.json"
+
+    def _load(p: Path):
+        try:
+            return _json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    if full.exists():
+        return _load(full) or {"summary": [], "note": "benchmark data unreadable"}
+
+    # Fallback: merge results.json summary + leaderboard.json summary.
+    summary = []
+    sources = ["results.json", "leaderboard.json"]
+    for name in sources:
+        d = _load(root / "data" / "benchmark" / name) or {}
+        s = d.get("summary")
+        if isinstance(s, list):
+            summary.extend(s)
+    return {
+        "mode": "merged_fallback",
+        "generated": None,
+        "description": "Fallback merge of results.json + leaderboard.json (partial).",
+        "summary": summary,
+        "note": "leaderboard_full.json not present; showing merged fallback.",
+    }
+
+
 class AgonistesHandler(BaseHTTPRequestHandler):
     def _send(self, payload, status: int = 200) -> None:
         body = json.dumps(payload, default=str).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_text(self, text: str, status: int = 200,
+                   ctype: str = "text/plain; version=0.0.4; charset=utf-8") -> None:
+        body = text.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -510,6 +735,12 @@ class AgonistesHandler(BaseHTTPRequestHandler):
         if path == "/api/monitoring":
             return _route_monitoring(db)
 
+        if path == "/api/benchmark":
+            return _route_benchmark()
+
+        if path == "/api/onchain":
+            return _route_onchain(db)
+
         if method == "POST":
             if path == "/api/fundamentals/refresh":
                 return _route_refresh_fundamentals(db, qs)
@@ -571,15 +802,25 @@ class AgonistesHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        # Unify the old standalone CFA viewer into the app's Valuation page.
-        if parsed.path in ("/model", "/model.html"):
-            self._redirect("/valuation")
-            return
-        if not parsed.path.startswith("/api/"):
-            if self._serve_spa(parsed.path):
-                return
+        route = parsed.path
+        t0 = time.monotonic()
         try:
+            # Prometheus /metrics — served outside /api/ so Prometheus can scrape
+            # the app directly on :8000 (matching prometheus.yml target :8000).
+            if route == "/metrics":
+                _record_duration(route, t0)
+                self._send_text(_route_metrics())
+                return
+            # Unify the old standalone CFA viewer into the app's Valuation page.
+            if parsed.path in ("/model", "/model.html"):
+                self._redirect("/valuation")
+                return
+            if not parsed.path.startswith("/api/"):
+                if self._serve_spa(parsed.path):
+                    _record_duration(route, t0)
+                    return
             self._send(self._route("GET", parsed.path, qs))
+            _record_duration(route, t0)
         except Exception as e:
             log.exception("GET %s failed", parsed.path)
             self._send({"error": str(e)}, status=500)
@@ -587,8 +828,11 @@ class AgonistesHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
+        route = parsed.path
+        t0 = time.monotonic()
         try:
             self._send(self._route("POST", parsed.path, qs))
+            _record_duration(route, t0)
         except Exception as e:
             log.exception("POST %s failed", parsed.path)
             self._send({"error": str(e)}, status=500)

@@ -209,6 +209,34 @@ def job_ingest_macro() -> None:
 
 
 @_retry(attempts=2, backoff=60.0)
+def job_ingest_onchain() -> None:
+    """Ingest Dune on-chain (SQL-direct) + CoinGecko exchange-flow snapshots."""
+    log.info("[DAILY] Ingesting on-chain (Dune + CoinGecko) …")
+    from core.db import get_storage
+    db = get_storage()
+    n = 0
+    try:
+        from data_ingestion.onchain_feeds.dune_fetcher import run_all as dune_run_all
+        snaps = dune_run_all(db)
+        n += len(snaps or [])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[DAILY] Dune on-chain ingest failed: %s", exc)
+    try:
+        from data_ingestion.onchain_feeds.exchange_flow_fetcher import (
+            fetch_crypto_global, fetch_exchange_flows)
+        for fn in (fetch_crypto_global, fetch_exchange_flows):
+            try:
+                if fn(storage=db):
+                    n += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[DAILY] on-chain feed %s failed: %s",
+                            getattr(fn, "__name__", "feed"), exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[DAILY] exchange-flow ingest failed: %s", exc)
+    log.info("[DAILY] On-chain ingest done — %d snapshot(s) written", n)
+
+
+@_retry(attempts=2, backoff=60.0)
 def job_ingest_edgar() -> None:
     """SEC EDGAR 3-statement fundamentals for the US equity universe (key-free)."""
     log.info("[DAILY] Ingesting SEC EDGAR company-facts …")
@@ -309,30 +337,29 @@ def job_screen_and_debate() -> None:
 
 @_retry(attempts=2, backoff=120.0)
 def job_model_drift_check() -> None:
-    """CUSUM drift test on TFT residuals. Flags if model needs retraining."""
+    """CUSUM drift test on gating-decision hit rate. Flags if model needs retraining."""
     log.info("[WEEKLY] Running model drift / performance check …")
     from core.db import get_storage
     import numpy as np
 
     db = get_storage()
-    # Pull last 20 gating decisions; compare bull/bear confidence drift
-    decisions = db.query_recent_gating(n=100) if hasattr(db, "query_recent_gating") else []
+    decisions = db.query_gating_outcomes(n=200) if hasattr(db, "query_gating_outcomes") else []
     if not decisions:
-        log.info("[WEEKLY] No gating history yet — skipping drift check")
+        log.info("[WEEKLY] No closed-trade outcome history yet — skipping drift check")
         return
 
-    # Simple CUSUM: flag if rolling 4-week hit rate drops > 10% from baseline
-    hits = [1 if d.get("dominant_side") == d.get("outcome") else 0
-            for d in decisions if "outcome" in d]
+    # Outcome is HIT/MISS per closed trade vs the dominant side's call.
+    hits = [1 if d.get("outcome") == "HIT" else 0
+            for d in decisions if d.get("outcome") in ("HIT", "MISS")]
     if len(hits) < 20:
-        log.info("[WEEKLY] Insufficient outcome history (%d) — skipping", len(hits))
+        log.info("[WEEKLY] Insufficient closed outcomes (%d) — skipping", len(hits))
         return
 
     baseline = np.mean(hits[:len(hits) // 2])
     recent = np.mean(hits[len(hits) // 2:])
     drift = baseline - recent
-    log.info("[WEEKLY] Hit rate baseline=%.2f recent=%.2f drift=%.3f",
-             baseline, recent, drift)
+    log.info("[WEEKLY] Hit rate baseline=%.2f recent=%.2f drift=%.3f (n=%d)",
+             baseline, recent, drift, len(hits))
     if drift > 0.10:
         log.warning("[WEEKLY] DRIFT DETECTED (%.3f > 0.10) — scheduling benchmark", drift)
         _write_flag("needs_benchmark", True)
@@ -548,6 +575,8 @@ ALL_JOBS = {
                                 "Refresh fundamental snapshots + DCF"),
     "ingest_macro":         Job("ingest_macro",         job_ingest_macro,
                                 "Macro + on-chain-global indicators (treasury/VIX/crypto)"),
+    "ingest_onchain":       Job("ingest_onchain",       job_ingest_onchain,
+                                "Dune on-chain + CoinGecko exchange-flow snapshots"),
     "ingest_edgar":         Job("ingest_edgar",         job_ingest_edgar,
                                 "SEC EDGAR 3-statement fundamentals (US equities)"),
     "ingest_profiles":      Job("ingest_profiles",      job_ingest_profiles,
@@ -652,6 +681,7 @@ def run_scheduler(dry_run: bool = False) -> None:
     daily_schedule = [
         (9,  15, "ingest_prices"),
         (9,  20, "ingest_macro"),
+        (9,  22, "ingest_onchain"),
         (9,  25, "ingest_edgar"),
         (9,  30, "ingest_profiles"),
         (9,  35, "ingest_fundamentals"),

@@ -64,7 +64,7 @@ Verified at HTTP layer: `/api/model?symbol=AAPL` returns a coherent model (WACC 
 **Unified "agentic-OS" dashboard (architecture gap closed) — committed `96078c2`:**
 
 The whole system now lives on ONE localhost origin: **http://127.0.0.1:8000/** (no more separate vite :3001 + bolt-on /model). The API server serves the built React app (`ui/dist`) at `/` with SPA fallback:
-- Pages: `/` Screener · `/financials` · `/valuation` (new — CFA 3-statement + DCF model as a first-class React page) · `/backtest` · `/portfolio` · `/debate`.
+- Pages: `/` Screener · `/onchain` · `/financials` · `/valuation` (CFA 3-statement + DCF as a first-class React page) · `/backtest` · `/benchmark` (model leaderboard, see below) · `/portfolio` · `/debate` · `/monitoring`.
 - Old `/model` and `/model.html` now **301-redirect → `/valuation`**.
 - `valuation/viewer.html` is no longer served at `/model` (the React Valuation page replaced it); the file remains in the repo.
 - React source lives in `ui/src`; build with `cd ui && npm run build` (output `ui/dist`, gitignored — regenerated, not committed).
@@ -77,6 +77,11 @@ Root cause of the plan/UI mismatch: `styles.css` (the design system) was written
 - `App.tsx`: modern shell — fixed sidebar (brand + grouped nav with lucide icons, active states) + sticky blurred topbar (page title, Live status); collapses to top nav under 900px. Added `lucide-react`.
 - All pages migrated: Screener, Backtest (KPI tiles + **real** equity/drawdown curve from `/api/backtest/equity` + regime bars), Portfolio, Debate (side-by-side Bull/Bear), Valuation.
 - **NEW Monitoring page** (plan §11.1) at `/monitoring`: data-feed coverage (11 sources, live row counts), infrastructure status, storage/DB info. Backed by new `GET /api/monitoring` in `core/api_server.py` (uses real tables `market_data` / `llm_analyses` / `macro_snapshots`).
+
+**Benchmark leaderboard folded into the dashboard (agentic-OS consolidation):**
+- New **`/benchmark`** React page (`ui/src/pages/benchmark.tsx`) renders the full 12-model OOS walk-forward leaderboard (Sharpe/CAGR/MaxDD/Calmar/Hit%/t-HAC/InfoRatio, ranked, top row highlighted) — the old standalone `research/results/leaderboard_viewer.html` is **removed** (was the only visualization left outside the single origin).
+- Backed by new **`GET /api/benchmark`** in `core/api_server.py`, reading canonical `data/benchmark/leaderboard_full.json` (12 models). Regenerate with `python scripts/rebuild_benchmark_leaderboard.py` (self-contained; `data/` is gitignored). Falls back to merging `results.json` + `leaderboard.json` if the full file is absent.
+- Nav: "Engine › Benchmark" (Trophy icon). Built + verified: `/benchmark` returns 200 SPA, `/api/benchmark` returns 12 models, page renders correctly in browser.
 
 **TradingView-style market screener + expanded universe (committed `34f38f9`, `0200589`):**
 
@@ -104,7 +109,7 @@ The screener no longer requires typing a ticker — the whole market is populate
 
 ## 4. BLOCKED ITEMS — Need the User's Input / Action
 
-1. **API keys (empty in `.env`)** — to unlock: `FRED_API_KEY` (fred.stlouisfed.org), `BLS_API_KEY` (data.bls.gov), `DUNE_API_KEY` (dune.com). Without them, FRED/BLS macro and Dune on-chain stay inactive (all other macro/on-chain already works key-free). The user said they are gathering these.
+1. ~~**API keys (empty in `.env`)**~~ **DONE** — `FRED_API_KEY`, `BLS_API_KEY`, `DUNE_API_KEY` all set & verified live. FRED/BLS macros active. Dune fetcher rewritten to the modern API (execute→poll→results) and persists to `market_data.raw` via new `write_onchain_snapshot`; still needs real `DUNE_QUERY_IDS` (name=query_id pairs) from the user's Dune account — the old placeholder IDs were 0. The key itself works (executes Dune's public sample query #1215383 end-to-end).
 2. **Docker not installed** — Neo4j (graph) and Qdrant (vectors) can't start; the weekly `ingest_graph` / `ingest_vectors` jobs need `docker compose up -d`. User is thinking through whether to install Docker here or run the stack elsewhere.
 3. **Sentiment tuning (user is deciding):** (a) GDELT returns 429 on rapid polling — needs politeness delays; (b) Reddit returns 0 — needs User-Agent/OAuth; or accept news+StockTwits as sentiment coverage.
 4. **TimescaleDB backend incomplete** — `core/db.py` `TimescaleStorage` has 8 `NotImplementedError`s (fundamentals, sentiment, statements, trades, profiles, LLM, earnings, macro only work on SQLite). Decide whether to stay on SQLite or finish the Timescale backend.

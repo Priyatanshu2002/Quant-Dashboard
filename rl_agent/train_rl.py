@@ -33,13 +33,21 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Train the PPO execution agent")
     ap.add_argument("--timesteps", type=int, default=1_000_000)
     ap.add_argument("--config", default=str(Path(__file__).parent / "configs" / "ppo_config.yaml"))
+    ap.add_argument("--symbols", nargs="*", default=None,
+                    help="Symbols whose real feature vectors drive training (default: all)")
+    ap.add_argument("--timeframe", default="SWING",
+                    help="Feature timeframe to train on (SWING/LONGTERM/etc.)")
     args = ap.parse_args()
 
     from rl_agent.agent import build_agent, load_ppo_config
     from rl_agent.environment import get_environment
 
     config = load_ppo_config(Path(args.config))
-    env = get_environment({"commission_rate": 0.001, "max_drawdown_limit": 0.15})
+    env = get_environment({
+        "commission_rate": 0.001, "max_drawdown_limit": 0.15,
+        "symbols": args.symbols or None,
+        "timeframe": args.timeframe,
+    })
     model = build_agent(env, config)
     train(env, model, total_timesteps=args.timesteps,
           eval_freq=config.get("eval_freq", 10_000),
